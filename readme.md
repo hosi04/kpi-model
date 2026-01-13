@@ -41,6 +41,8 @@ CREATE TABLE hskcdp.kpi_day (
   `weight` Decimal(40, 15),
   `total_weight_month` Decimal(40, 15),
   `kpi_day_initial` Decimal(40, 15),
+  `actual` Nullable(Decimal(40, 15)),
+  `gap` Nullable(Decimal(40, 15)),
   `kpi_day_adjustment` Nullable(Decimal(40, 15)),
   `created_at` DateTime DEFAULT now (),
   `updated_at` DateTime DEFAULT now ()

@@ -148,6 +148,21 @@ class KPIDayCalculator:
             if kpi_month_result.result_rows:
                 kpi_month_map[(year, month)] = float(kpi_month_result.result_rows[0][0])
         
+        # Lấy actual từ actual_2026_day_staging cho tất cả các ngày
+        calendar_dates = [row['calendar_date'] for row in kpi_day_data]
+        dates_str = ','.join([f"'{cd}'" for cd in calendar_dates])
+        
+        actual_query = f"""
+            SELECT 
+                calendar_date,
+                actual_amount
+            FROM hskcdp.actual_2026_day_staging FINAL
+            WHERE calendar_date IN ({dates_str})
+              AND processed = true
+        """
+        actual_result = self.client.query(actual_query)
+        actual_map = {row[0]: float(row[1]) for row in actual_result.result_rows}
+        
         data = []
         for row in kpi_day_data:
             # Lấy kpi_month mới nhất từ kpi_month_map (từ bảng kpi_month)
@@ -155,8 +170,14 @@ class KPIDayCalculator:
             month = row['month']
             kpi_month = kpi_month_map.get((year, month), row.get('kpi_month', 0))
             
+            # Lấy actual và tính gap
+            calendar_date = row['calendar_date']
+            actual = actual_map.get(calendar_date)
+            kpi_day_initial = row['kpi_day_initial']
+            gap = (actual - kpi_day_initial) if actual is not None else None
+            
             data.append([
-                row['calendar_date'],
+                calendar_date,
                 row['year'],
                 row['month'],
                 row['day'],
@@ -166,6 +187,8 @@ class KPIDayCalculator:
                 row['weight'],
                 row['total_weight_month'],
                 row['kpi_day_initial'],
+                actual,  # actual từ actual_2026_day_staging
+                gap,     # gap = actual - kpi_day_initial
                 now,
                 now
             ])
@@ -173,7 +196,7 @@ class KPIDayCalculator:
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
             'kpi_month', 'uplift', 'weight', 'total_weight_month',
-            'kpi_day_initial', 'created_at', 'updated_at'
+            'kpi_day_initial', 'actual', 'gap', 'created_at', 'updated_at'
         ]
         
         self.client.insert("hskcdp.kpi_day", data, column_names=columns)
@@ -413,6 +436,18 @@ class KPIDayCalculator:
                 'kpi_day_initial': float(row[8])
             }
         
+        # Lấy actual từ actual_2026_day_staging cho tất cả các ngày
+        actual_query = f"""
+            SELECT 
+                calendar_date,
+                actual_amount
+            FROM hskcdp.actual_2026_day_staging FINAL
+            WHERE calendar_date IN ({dates_str})
+              AND processed = true
+        """
+        actual_result = self.client.query(actual_query)
+        actual_map = {row[0]: float(row[1]) for row in actual_result.result_rows}
+        
         # Tạo data để insert (ReplacingMergeTree sẽ tự động merge)
         data = []
         for row in kpi_day_adjustment_data:
@@ -423,6 +458,11 @@ class KPIDayCalculator:
             year = row['year']
             month = row['month']
             kpi_month = kpi_month_map.get((year, month), 0)
+            
+            # Lấy actual và tính gap
+            actual = actual_map.get(calendar_date)
+            kpi_day_initial = current_data.get('kpi_day_initial', row['kpi_day_initial'])
+            gap = (actual - kpi_day_initial) if actual is not None else None
             
             data.append([
                 calendar_date,
@@ -435,6 +475,8 @@ class KPIDayCalculator:
                 current_data.get('weight', 0),
                 current_data.get('total_weight_month', 0),
                 current_data.get('kpi_day_initial', row['kpi_day_initial']),
+                actual,  # actual từ actual_2026_day_staging
+                gap,     # gap = actual - kpi_day_initial
                 row['kpi_day_adjustment'],
                 now,
                 now
@@ -443,7 +485,7 @@ class KPIDayCalculator:
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
             'kpi_month', 'uplift', 'weight', 'total_weight_month',
-            'kpi_day_initial', 'kpi_day_adjustment', 'created_at', 'updated_at'
+            'kpi_day_initial', 'actual', 'gap', 'kpi_day_adjustment', 'created_at', 'updated_at'
         ]
         
         self.client.insert("hskcdp.kpi_day", data, column_names=columns)

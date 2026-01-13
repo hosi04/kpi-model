@@ -15,23 +15,19 @@ class KPIAdjustmentCalculator:
         Lấy avg revenue của Normal day từ 30 ngày gần nhất trong revenue_2025_ver2
         """
         query = f"""
-            SELECT 
-                AVG(daily_revenue) as avg_rev_normal_day
+            SELECT
+                AVG(daily_revenue) AS avg_rev_normal_day
             FROM (
-                SELECT 
+                SELECT
                     calendar_date,
-                    SUM(revenue) as daily_revenue
+                    SUM(revenue) AS daily_revenue
                 FROM hskcdp.revenue_2025_ver2
                 WHERE date_label = 'Normal day'
-                  AND NOT (
-                      (toMonth(calendar_date) = 6 AND toDayOfMonth(calendar_date) = 6) OR
-                      (toMonth(calendar_date) = 9 AND toDayOfMonth(calendar_date) = 9) OR
-                      (toMonth(calendar_date) = 11 AND toDayOfMonth(calendar_date) = 11) OR
-                      (toMonth(calendar_date) = 12 AND toDayOfMonth(calendar_date) = 12)
-                  )
+                AND calendar_date >= today() - 30
+                AND (toMonth(calendar_date), toDayOfMonth(calendar_date)) NOT IN (
+                    (6,6), (9,9), (11,11), (12,12)
+                )
                 GROUP BY calendar_date
-                ORDER BY calendar_date DESC
-                LIMIT 30
             )
         """
         
@@ -132,11 +128,11 @@ class KPIAdjustmentCalculator:
             if remaining_count > 0:
                 remaining_days_by_label[date_label] = remaining_count
         
-        # 3. Lấy avg_total của Normal day và uplift của các date_label từ kpi_day_metadata
+        # 3. Lấy uplift của các date_label từ kpi_day_metadata (baseline Normal day lấy từ 30 ngày gần nhất)
+        avg_total_normal_day = self.get_avg_rev_normal_day_30_days()
         metadata_query = f"""
             SELECT 
                 date_label,
-                avg_total,
                 uplift,
                 row_number() OVER (
                     PARTITION BY year, month, date_label
@@ -149,37 +145,24 @@ class KPIAdjustmentCalculator:
         
         metadata_result = self.client.query(metadata_query)
         metadata_by_label = {}
-        avg_total_normal_day = Decimal('0')
         
         for row in metadata_result.result_rows:
-            if row[3] == 1:  # Chỉ lấy record mới nhất (rn = 1)
+            if row[2] == 1:  # Chỉ lấy record mới nhất (rn = 1)
                 date_label = row[0]
-                avg_total = Decimal(str(row[1]))
-                uplift = Decimal(str(row[2]))
-                metadata_by_label[date_label] = {
-                    'avg_total': avg_total,
-                    'uplift': uplift
-                }
-                if date_label == 'Normal day':
-                    avg_total_normal_day = avg_total
+                uplift = Decimal(str(row[1]))
+                metadata_by_label[date_label] = uplift
         
-        # 4. Tính Sum(rev eom) = SUM(số_ngày * avg_total_normal_day * uplift) cho từng date_label
+        # 4. Tính Sum(rev eom) = SUM(số_ngày * avg_rev_normal_day * uplift) cho từng date_label
         sum_rev_eom = Decimal('0')
         for date_label, so_ngay in remaining_days_by_label.items():
-            if date_label in metadata_by_label:
-                uplift = metadata_by_label[date_label]['uplift']
-            else:
-                # Nếu chưa có metadata, dùng uplift = 1.0
-                uplift = Decimal('1.0')
-            
-            # Sum(rev eom) cho date_label này = số_ngày * avg_total_normal_day * uplift
+            uplift = metadata_by_label.get(date_label, Decimal('1.0'))
             rev_eom_for_label = Decimal(str(so_ngay)) * avg_total_normal_day * uplift
             sum_rev_eom += rev_eom_for_label
         
         # Debug log
         print(f"DEBUG EOM calculation for month {target_month}:")
         print(f"  - Sum(actual) = {sum_actual}")
-        print(f"  - Avg total normal day = {avg_total_normal_day}")
+        print(f"  - Avg total normal day (30 ngày gần nhất) = {avg_total_normal_day}")
         print(f"  - All days by label: {all_days_by_label}")
         print(f"  - Actual days by label: {actual_days_by_label}")
         print(f"  - Remaining days by label: {remaining_days_by_label}")
