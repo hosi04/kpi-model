@@ -159,10 +159,10 @@ if __name__ == "__main__":
     loader = ActualDayLoader(constants)
     
     print("Inserting actual for day 2026-01-15...")
-    loader.insert_actual(calendar_date=date(2026, 1, 2), actual_amount=18134947811)
+    loader.insert_actual(calendar_date=date(2026, 1, 3), actual_amount=17466819556)
     
     print("Marking as processed...")
-    loader.mark_processed(calendar_date=date(2026, 1, 2))
+    loader.mark_processed(calendar_date=date(2026, 1, 3))
     
     print("Getting processed actuals...")
     processed = loader.get_processed_actuals()
