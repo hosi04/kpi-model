@@ -221,7 +221,6 @@ class KPIAdjustmentCalculator:
         actuals_day = {}  # Lưu tổng actual theo ngày cho các tháng có EOM
         gaps = {}
         total_gap = Decimal('0')
-        months_with_ended = []  # Các tháng đã kết thúc (có actual ngày cuối)
         
         for month in range(1, 13):
             kpi_initial = Decimal(str(base_kpi[month]['kpi_initial']))
@@ -240,10 +239,8 @@ class KPIAdjustmentCalculator:
                     self.constants.KPI_YEAR_2026, month
                 )
                 
-                # Check xem tháng đã kết thúc chưa (ngày cuối cùng có actual)
-                if self.is_month_ended(self.constants.KPI_YEAR_2026, month):
-                    months_with_ended.append(month)
-                    total_gap += gap
+                # Tính gap vào total_gap ngay (không cần chờ hết tháng)
+                total_gap += gap
             elif month in actuals_month:
                 # Không có actual theo ngày nhưng có actual tháng → giữ logic cũ
                 actual = Decimal(str(actuals_month[month]))
@@ -251,14 +248,22 @@ class KPIAdjustmentCalculator:
                 gaps[month] = gap
                 total_gap += gap
         
-        # Tính gap phân bổ (chỉ từ các tháng đã kết thúc)
-        months_with_actual = len(actuals_month)
-        remaining_months = 12 - months_with_actual
+        # Tính gap phân bổ: chia đều cho các tháng chưa có actual
+        # remaining_months = các tháng chưa có actual (chưa có EOM và chưa có actual tháng)
+        months_with_actual = set(eoms.keys()) | set(actuals_month.keys())
+        remaining_months = 12 - len(months_with_actual)
         
         if remaining_months > 0:
             gap_per_remaining_month = total_gap / Decimal(str(remaining_months))
         else:
             gap_per_remaining_month = Decimal('0')
+        
+        # Debug log cho phân bổ gap
+        print(f"DEBUG Gap distribution:")
+        print(f"  - Total gap = {total_gap}")
+        print(f"  - Months with actual (EOM or monthly): {sorted(months_with_actual)}")
+        print(f"  - Remaining months = {remaining_months}")
+        print(f"  - Gap per remaining month = {gap_per_remaining_month}")
         
         # Version đã được xác định ở đầu function
         
@@ -280,6 +285,7 @@ class KPIAdjustmentCalculator:
                 kpi_adjustment = actual_2026
             else:
                 # Tháng chưa có actual → phân bổ gap
+                # kpi_adjustment = kpi_initial - (gap / số tháng còn lại)
                 actual_2026 = None
                 gap = None
                 kpi_adjustment = kpi_initial - gap_per_remaining_month
