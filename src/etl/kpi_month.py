@@ -3,39 +3,21 @@ from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional
 from src.utils.clickhouse_client import get_client
 from src.utils.constants import Constants
+from src.utils.query_helper import RevenueQueryHelper
 
 
 class KPIAdjustmentCalculator:
     def __init__(self, constants: Constants):
         self.client = get_client()
         self.constants = constants
+        self.revenue_helper = RevenueQueryHelper()
     
     def get_avg_rev_normal_day_30_days(self) -> Decimal:
         """
-        Lấy avg revenue của Normal day từ 30 ngày gần nhất trong revenue_2025_ver2
+        Lấy avg revenue của Normal day từ 30 ngày gần nhất từ transactions
+        Sử dụng helper method từ RevenueQueryHelper
         """
-        query = f"""
-            SELECT
-                AVG(daily_revenue) AS avg_rev_normal_day
-            FROM (
-                SELECT
-                    calendar_date,
-                    SUM(revenue) AS daily_revenue
-                FROM hskcdp.revenue_2025_ver2
-                WHERE date_label = 'Normal day'
-                AND calendar_date >= today() - 30
-                AND (toMonth(calendar_date), toDayOfMonth(calendar_date)) NOT IN (
-                    (6,6), (9,9), (11,11), (12,12)
-                )
-                GROUP BY calendar_date
-            )
-        """
-        
-        result = self.client.query(query)
-        if result.result_rows and result.result_rows[0][0] is not None:
-            return Decimal(str(result.result_rows[0][0]))
-        else:
-            raise ValueError("Cannot calculate avg rev normal day: no data found")
+        return self.revenue_helper.get_avg_rev_normal_day_30_days()
     
     def calculate_eom(self, target_year: int, target_month: int) -> Optional[Decimal]:
         """
@@ -43,90 +25,69 @@ class KPIAdjustmentCalculator:
         EOM = Sum(actual) + Sum(rev eom những ngày còn lại)
         Sum(rev eom) = Avg rev normal day * uplift cho mỗi ngày còn lại
         """
-        # 1. Tính Sum(actual) từ actual_2026_day_staging
-        actual_sum_query = f"""
-            SELECT 
-                SUM(actual_amount) as sum_actual
-            FROM hskcdp.actual_2026_day_staging FINAL
-            WHERE year = {target_year}
-              AND month = {target_month}
-              AND processed = true
-        """
-        
-        actual_result = self.client.query(actual_sum_query)
-        sum_actual = Decimal('0')
-        if actual_result.result_rows and actual_result.result_rows[0][0] is not None:
-            sum_actual = Decimal(str(actual_result.result_rows[0][0]))
+        # 1. Tính Sum(actual) từ transactions
+        sum_actual = self.revenue_helper.get_daily_actual_sum(target_year, target_month)
         
         # Nếu không có actual nào, không tính EOM
         if sum_actual == 0:
             return None
         
-        # 2. Đếm số lượng từng loại date_label còn lại (chưa có actual) từ dim_date
-        # Lấy danh sách các ngày đã có actual
-        actual_days_list_query = f"""
-            SELECT DISTINCT calendar_date
-            FROM hskcdp.actual_2026_day_staging FINAL
-            WHERE year = {target_year}
-              AND month = {target_month}
-              AND processed = true
-        """
-        actual_days_result = self.client.query(actual_days_list_query)
-        actual_dates = {row[0] for row in actual_days_result.result_rows}
+        # 2. Tính số ngày còn lại từ ngày hiện tại đến cuối tháng
+        # Lấy danh sách các ngày đã có actual từ transactions (để debug)
+        actual_dates = self.revenue_helper.get_actual_dates(target_year, target_month)
         print(f"DEBUG: actual_dates = {actual_dates}")
         
-        # Đếm số ngày còn lại theo date_label
-        remaining_days_count_query = f"""
-            SELECT 
-                date_label,
-                COUNT(*) as so_ngay
-            FROM dim_date
-            WHERE year = {target_year}
-              AND month = {target_month}
-              AND NOT (
-                  (month = 6 AND day = 6) OR
-                  (month = 9 AND day = 9) OR
-                  (month = 11 AND day = 11) OR
-                  (month = 12 AND day = 12)
-              )
-            GROUP BY date_label
-        """
+        if not actual_dates:
+            # Không có actual nào, không tính EOM
+            return None
         
-        all_days_result = self.client.query(remaining_days_count_query)
-        all_days_by_label = {row[0]: int(row[1]) for row in all_days_result.result_rows}
+        # Lấy ngày hiện tại
+        today = date.today()
         
-        # Lấy các ngày đã có actual theo date_label để trừ đi
-        if actual_dates:
-            actual_days_by_label_query = f"""
-                SELECT 
-                    d.date_label,
-                    COUNT(*) as so_ngay
-                FROM dim_date d
-                WHERE d.year = {target_year}
-                  AND d.month = {target_month}
-                  AND d.calendar_date IN ({','.join([f"'{d}'" for d in actual_dates])})
-                  AND NOT (
-                      (d.month = 6 AND d.day = 6) OR
-                      (d.month = 9 AND d.day = 9) OR
-                      (d.month = 11 AND d.day = 11) OR
-                      (d.month = 12 AND d.day = 12)
-                  )
-                GROUP BY d.date_label
-            """
-            actual_days_by_label_result = self.client.query(actual_days_by_label_query)
-            actual_days_by_label = {row[0]: int(row[1]) for row in actual_days_by_label_result.result_rows}
-            print(f"DEBUG: actual_days_by_label query result rows = {actual_days_by_label_result.result_rows}")
+        # Tính ngày cuối cùng của tháng
+        if target_month == 12:
+            last_day_of_month = date(target_year, 12, 31)
         else:
-            actual_days_by_label = {}
+            next_month = date(target_year, target_month + 1, 1)
+            last_day_of_month = next_month - timedelta(days=1)
         
-        # Tính số ngày còn lại = tổng số ngày - số ngày đã có actual
-        remaining_days_by_label = {}
-        for date_label, total_count in all_days_by_label.items():
-            actual_count = actual_days_by_label.get(date_label, 0)
-            remaining_count = total_count - actual_count
-            print(f"DEBUG: date_label={date_label}, total={total_count}, actual={actual_count}, remaining={remaining_count}")
-            if remaining_count > 0:
-                remaining_days_by_label[date_label] = remaining_count
+        # Nếu ngày hiện tại đã qua tháng này, không có ngày còn lại
+        start_date = None
+        if today > last_day_of_month:
+            # Tháng đã kết thúc, không có ngày còn lại
+            remaining_days_by_label = {}
+            print(f"DEBUG: today = {today}, tháng đã kết thúc, remaining_days_by_label = {remaining_days_by_label}")
+        else:
+            # Đếm số ngày còn lại từ ngày hiện tại đến cuối tháng theo date_label
+            # Nếu today trong tháng này, tính từ today + 1 (ngày mai) đến cuối tháng
+            # Nếu today chưa đến tháng này, tính từ đầu tháng đến cuối tháng
+            if today.year == target_year and today.month == target_month:
+                start_date = today + timedelta(days=1)  # Từ ngày mai
+            else:
+                # Nếu today chưa đến tháng này, tính từ đầu tháng
+                start_date = date(target_year, target_month, 1)
+            
+            remaining_days_count_query = f"""
+                SELECT 
+                    date_label,
+                    COUNT(*) as so_ngay
+                FROM dim_date
+                WHERE year = {target_year}
+                  AND month = {target_month}
+                  AND calendar_date >= '{start_date}'
+                  AND calendar_date <= '{last_day_of_month}'
+                  AND NOT (
+                      (month = 6 AND day = 6) OR
+                      (month = 9 AND day = 9) OR
+                      (month = 11 AND day = 11) OR
+                      (month = 12 AND day = 12)
+                  )
+                GROUP BY date_label
+            """
+            
+            remaining_days_result = self.client.query(remaining_days_count_query)
+            remaining_days_by_label = {row[0]: int(row[1]) for row in remaining_days_result.result_rows}
+            print(f"DEBUG: today = {today}, start_date = {start_date}, remaining_days_by_label = {remaining_days_by_label}")
         
         # 3. Lấy uplift của các date_label từ kpi_day_metadata (baseline Normal day lấy từ 30 ngày gần nhất)
         avg_total_normal_day = self.get_avg_rev_normal_day_30_days()
@@ -162,9 +123,10 @@ class KPIAdjustmentCalculator:
         # Debug log
         print(f"DEBUG EOM calculation for month {target_month}:")
         print(f"  - Sum(actual) = {sum_actual}")
+        print(f"  - Today = {today}")
+        if today <= last_day_of_month:
+            print(f"  - Start date (remaining from) = {start_date}")
         print(f"  - Avg total normal day (30 ngày gần nhất) = {avg_total_normal_day}")
-        print(f"  - All days by label: {all_days_by_label}")
-        print(f"  - Actual days by label: {actual_days_by_label}")
         print(f"  - Remaining days by label: {remaining_days_by_label}")
         print(f"  - Sum(rev eom) = {sum_rev_eom}")
         print(f"  - EOM = {sum_actual + sum_rev_eom}")
@@ -176,29 +138,10 @@ class KPIAdjustmentCalculator:
     
     def is_month_ended(self, target_year: int, target_month: int) -> bool:
         """
-        Check xem tháng đã kết thúc chưa (có actual của ngày cuối cùng)
+        Check xem tháng đã kết thúc chưa
+        Sử dụng helper method từ RevenueQueryHelper
         """
-        # Lấy ngày cuối cùng của tháng
-        if target_month == 12:
-            last_day = date(target_year, 12, 31)
-        else:
-            next_month = date(target_year, target_month + 1, 1)
-            last_day = next_month - timedelta(days=1)
-        
-        # Check xem ngày cuối cùng có actual không
-        query = f"""
-            SELECT COUNT(*) as cnt
-            FROM hskcdp.actual_2026_day_staging FINAL
-            WHERE year = {target_year}
-              AND month = {target_month}
-              AND calendar_date = '{last_day}'
-              AND processed = true
-        """
-        
-        result = self.client.query(query)
-        if result.result_rows and result.result_rows[0][0] > 0:
-            return True
-        return False
+        return self.revenue_helper.check_month_ended(target_year, target_month)
     
     def calculate_kpi_adjustment(self, target_month: Optional[int] = None) -> List[Dict]:
         """
@@ -209,28 +152,8 @@ class KPIAdjustmentCalculator:
         """
         # Xác định tháng đang tính (target_month)
         if target_month is None:
-            # Tìm tháng có actual theo ngày mới nhất
-            day_actual_query = f"""
-                SELECT MAX(month) as max_month
-                FROM hskcdp.actual_2026_day_staging FINAL
-                WHERE year = {self.constants.KPI_YEAR_2026}
-                  AND processed = true
-            """
-            day_result = self.client.query(day_actual_query)
-            max_day_month = day_result.result_rows[0][0] if day_result.result_rows and day_result.result_rows[0][0] else 0
-            
-            # Tìm tháng có actual tháng mới nhất
-            month_actual_query = f"""
-                SELECT MAX(month) as max_month
-                FROM hskcdp.actual_2026_staging FINAL
-                WHERE year = {self.constants.KPI_YEAR_2026}
-                  AND processed = true
-            """
-            month_result = self.client.query(month_actual_query)
-            max_month_month = month_result.result_rows[0][0] if month_result.result_rows and month_result.result_rows[0][0] else 0
-            
-            # Lấy tháng lớn nhất
-            target_month = max(max_day_month, max_month_month)
+            # Tìm tháng có actual mới nhất từ transactions
+            target_month = self.revenue_helper.get_max_month_with_actual(self.constants.KPI_YEAR_2026)
             
             if target_month == 0:
                 # Chưa có actual nào, tính cho tháng 1
@@ -290,18 +213,8 @@ class KPIAdjustmentCalculator:
             
             base_kpi[month] = {'year': self.constants.KPI_YEAR_2026, 'month': month, 'kpi_initial': kpi_initial}
         
-        # Lấy actual tháng (nếu có)
-        actual_query = f"""
-            SELECT 
-                month,
-                actual_amount
-            FROM hskcdp.actual_2026_staging FINAL
-            WHERE year = {self.constants.KPI_YEAR_2026}
-            AND processed = true
-            ORDER BY month
-        """
-        actual_result = self.client.query(actual_query)
-        actuals_month = {row[0]: float(row[1]) for row in actual_result.result_rows}
+        # Lấy actual tháng (nếu có) từ transactions
+        actuals_month = self.revenue_helper.get_monthly_actual(self.constants.KPI_YEAR_2026)
         
         # Tính EOM cho các tháng có actual theo ngày
         eoms = {}
@@ -322,20 +235,10 @@ class KPIAdjustmentCalculator:
                 gap = eom - kpi_initial
                 gaps[month] = gap
                 
-                # Lấy tổng actual theo ngày để lưu vào actual_2026
-                actual_sum_query = f"""
-                    SELECT 
-                        SUM(actual_amount) as sum_actual
-                    FROM hskcdp.actual_2026_day_staging FINAL
-                    WHERE year = {self.constants.KPI_YEAR_2026}
-                      AND month = {month}
-                      AND processed = true
-                """
-                actual_sum_result = self.client.query(actual_sum_query)
-                if actual_sum_result.result_rows and actual_sum_result.result_rows[0][0] is not None:
-                    actuals_day[month] = Decimal(str(actual_sum_result.result_rows[0][0]))
-                else:
-                    actuals_day[month] = Decimal('0')
+                # Lấy tổng actual theo ngày để lưu vào actual_2026 từ transactions
+                actuals_day[month] = self.revenue_helper.get_daily_actual_sum(
+                    self.constants.KPI_YEAR_2026, month
+                )
                 
                 # Check xem tháng đã kết thúc chưa (ngày cuối cùng có actual)
                 if self.is_month_ended(self.constants.KPI_YEAR_2026, month):
