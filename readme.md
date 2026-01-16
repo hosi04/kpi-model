@@ -11,11 +11,11 @@
 
 - Weighted Left = ?
 
-- kpi_initial_day = Uplift * kpi_month / weight
+- kpi_initial_day = Uplift * kpi_month / SUM(weight)
 
 - SUM(Weighted Left)= "Weighted Left" đang là tổng uplift của các ngày chưa có actual
 
-- kpi_day_adjustment = kpi_initial_day - (Gap * Weighted / SUM(Weighted Left)) 
+- kpi_day_adjustment = kpi_initial_day - (SUM(Gap) * Weighted / SUM(Weighted Left))
 
 <!-- kpi_brand = kpi_day * kpi_channel -->
 
@@ -39,6 +39,7 @@ CREATE TABLE hskcdp.kpi_day (
   `kpi_month` Decimal(40, 15),
   `uplift` Decimal(40, 15),
   `weight` Decimal(40, 15),
+  `weighted_left` Decimal(40, 15),
   `total_weight_month` Decimal(40, 15),
   `kpi_day_initial` Decimal(40, 15),
   `actual` Nullable(Decimal(40, 15)),
@@ -49,6 +50,9 @@ CREATE TABLE hskcdp.kpi_day (
 ) ENGINE = ReplacingMergeTree (updated_at)
 ORDER BY
   (year, month, calendar_date) SETTINGS index_granularity = 8192;
+
+-- DDL để add column weighted_left sau cột weight
+ALTER TABLE hskcdp.kpi_day ADD COLUMN `weighted_left` Decimal(40, 15) AFTER `weight`;
 
 CREATE TABLE hskcdp.actual_2026_day_staging (
   `year` UInt16,

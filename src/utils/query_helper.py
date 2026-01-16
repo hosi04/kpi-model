@@ -104,8 +104,8 @@ class RevenueQueryHelper:
               AND toDate(t.created_at) IN ({dates_str})
               AND t.status NOT IN ('Canceled', 'Cancel')
               AND (toMonth(t.created_at), toDayOfMonth(t.created_at)) NOT IN (
-                  (6,6), (9,9), (11,11), (12,12)
-              )
+                    (6,6), (9,9), (11,11), (12,12)
+            )
             GROUP BY d.date_label
         """
         
@@ -168,7 +168,7 @@ class RevenueQueryHelper:
         actuals_month = {row[0]: float(row[1]) for row in result.result_rows}
         return actuals_month
     
-    # HISTORICAL REVENUE QUERIES (for metadata calculation)
+    # KPI DAY METADATA RELATED QUERIES (HISTORICAL REVENUE QUERIES)
     
     def get_historical_revenue_by_date_label(
         self,
@@ -200,19 +200,28 @@ class RevenueQueryHelper:
         
         query = f"""
             SELECT 
-                d.date_label,
-                AVG(t.transaction_total) as avg_total,
-                COUNT(DISTINCT toDate(t.created_at)) as so_ngay_historical
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            INNER JOIN hskcdp.dim_date d
-                ON toDate(t.created_at) = d.calendar_date
-            WHERE toStartOfMonth(t.created_at) IN ({','.join(month_filters)})
-              AND d.date_label IN ({date_labels_str})
-              AND t.status NOT IN ('Cancel', 'Canceled')
-              AND (toMonth(t.created_at), toDayOfMonth(t.created_at)) NOT IN (
-                  (6,6), (9,9), (11,11), (12,12)
-              )
-            GROUP BY d.date_label
+                a.date_label,
+                AVG(a.daily_revenue) as avg_total,
+                COUNT(DISTINCT a.calendar_date) as so_ngay_historical
+            FROM (
+                SELECT 
+                    d.calendar_date,
+                    d.date_label,
+                    SUM(t.transaction_total) as daily_revenue
+                FROM hskcdp.object_sql_transactions AS t FINAL
+                INNER JOIN hskcdp.dim_date d
+                    ON toDate(t.created_at) = d.calendar_date
+                WHERE toDate(t.created_at) >= today() - INTERVAL 3 MONTH
+                  AND d.date_label IN ({date_labels_str})
+                  AND t.status NOT IN ('Cancel', 'Canceled')
+                  AND (toMonth(t.created_at), toDayOfMonth(t.created_at)) NOT IN (
+                        (6,6), (9,9), (11,11), (12,12)
+                    )
+                GROUP BY 
+                    d.calendar_date,
+                    d.date_label
+            ) as a
+            GROUP BY a.date_label
         """
         
         result = self.client.query(query)
@@ -228,3 +237,81 @@ class RevenueQueryHelper:
             }
         
         return historical_data
+
+
+    # KPI DAY RELATED QUERIES
+    
+    def get_daily_actual_by_dates(self, calendar_dates: List[date]) -> Dict[date, float]:
+        """
+        Lấy actual revenue theo danh sách ngày cụ thể từ transactions
+        Thay thế query từ actual_2026_day_staging
+        Returns: dict {calendar_date: actual_amount}
+        """
+        if not calendar_dates:
+            return {}
+        
+        dates_str = ','.join([f"'{d}'" for d in calendar_dates])
+        
+        query = f"""
+            SELECT 
+                toDate(t.created_at) as calendar_date,
+                SUM(t.transaction_total) as actual_amount
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            WHERE toDate(t.created_at) IN ({dates_str})
+              AND t.status NOT IN ('Canceled', 'Cancel')
+            GROUP BY calendar_date
+        """
+        
+        result = self.client.query(query)
+        actual_map = {row[0]: float(row[1]) for row in result.result_rows}
+        return actual_map
+    
+    def get_daily_actual_by_month(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> Dict[date, float]:
+        """
+        Lấy actual revenue theo ngày cho toàn bộ tháng từ transactions
+        Thay thế query từ actual_2026_day_staging
+        Returns: dict {calendar_date: actual_amount}
+        """
+        query = f"""
+            SELECT 
+                toDate(t.created_at) as calendar_date,
+                SUM(t.transaction_total) as actual_amount
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            WHERE toYear(t.created_at) = {target_year}
+              AND toMonth(t.created_at) = {target_month}
+              AND t.status NOT IN ('Canceled', 'Cancel')
+            GROUP BY calendar_date
+            ORDER BY calendar_date
+        """
+        
+        result = self.client.query(query)
+        actual_map = {row[0]: float(row[1]) for row in result.result_rows}
+        return actual_map
+    
+    def check_has_actual_for_month(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> bool:
+        """
+        Kiểm tra có actual trong tháng từ transactions
+        Thay thế query từ actual_2026_day_staging
+        Returns: True nếu có actual, False nếu không có
+        """
+        query = f"""
+            SELECT COUNT(*) as cnt
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            WHERE toYear(t.created_at) = {target_year}
+              AND toMonth(t.created_at) = {target_month}
+              AND t.status NOT IN ('Canceled', 'Cancel')
+        """
+        
+        result = self.client.query(query)
+        if result.result_rows and result.result_rows[0][0] > 0:
+            return True
+        return False
+
