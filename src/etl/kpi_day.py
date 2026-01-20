@@ -163,7 +163,13 @@ class KPIDayCalculator:
             
             # Lấy actual và tính gap
             calendar_date = row['calendar_date']
-            actual = actual_map.get(calendar_date)
+            today = date.today()
+            # Chỉ set actual = 0 cho ngày hiện tại và ngày đã qua
+            # Ngày chưa tới thì actual = None
+            if calendar_date <= today:
+                actual = actual_map.get(calendar_date, 0)  # Nếu không có actual thì = 0
+            else:
+                actual = actual_map.get(calendar_date)  # Ngày chưa tới: None nếu không có
             kpi_day_initial = row['kpi_day_initial']
             gap = (actual - kpi_day_initial) if actual is not None else None
             
@@ -310,6 +316,61 @@ class KPIDayCalculator:
         print(f"DEBUG: Số ngày chưa có actual và chưa qua: {len(days_in_weighted_left)}")
         print(f"DEBUG: Danh sách ngày trong Weighted Left: {[str(d[0]) for d in days_in_weighted_left]}")
         
+        # Tính EOD cho ngày hiện tại (nếu ngày hiện tại nằm trong tháng đang tính)
+        eod_value = None
+        current_datetime = datetime.now()
+        # Làm tròn giờ xuống: nếu 9h05 thì dùng 9h, nếu 9h59 thì vẫn dùng 9h
+        # datetime.now().hour tự động làm tròn xuống (9h05 → 9h, 9h59 → 9h)
+        current_hour = current_datetime.hour
+        current_minute = current_datetime.minute
+        
+        if today.year == target_year and today.month == target_month and today in all_days:
+            print(f"\n=== DEBUG: Tính EOD cho ngày {today} ===")
+            print(f"DEBUG: Current datetime = {current_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"DEBUG: Current hour (rounded down) = {current_hour}h")
+            print(f"DEBUG: Lấy actual từ 0h00 đến <{current_hour}h (tức là từ 0h00 đến {current_hour - 1}h59)")
+            
+            # Lấy % doanh thu theo giờ trong 30 ngày gần nhất
+            hourly_percentages = self.revenue_helper.get_hourly_revenue_percentage(days_back=30)
+            print(f"DEBUG: Hourly revenue percentages (30 ngày gần nhất):")
+            for hour in range(24):
+                if hour in hourly_percentages:
+                    percentage = hourly_percentages[hour]
+                    print(f"  - Giờ {hour:2d}h: {percentage:.6f} ({percentage * 100:.4f}%)")
+            
+            # Tính tổng % của các giờ đã qua (từ 0h đến current_hour - 1)
+            # Ví dụ: current_hour = 9 thì tính tổng % từ 0h đến 8h
+            total_percentage_passed = Decimal('0')
+            print(f"\nDEBUG: Tính tổng % của các giờ đã qua (0h đến {current_hour - 1}h):")
+            for hour in range(current_hour):
+                if hour in hourly_percentages:
+                    percentage = Decimal(str(hourly_percentages[hour]))
+                    total_percentage_passed += percentage
+                    print(f"  - Giờ {hour:2d}h: {percentage:.6f} ({float(percentage) * 100:.4f}%)")
+            
+            print(f"DEBUG: Tổng % của các giờ đã qua = {total_percentage_passed} ({float(total_percentage_passed) * 100:.4f}%)")
+            
+            # Lấy actual từ đầu ngày đến < giờ hiện tại (0h00 đến <current_hour)
+            # Ví dụ: current_hour = 9 thì lấy actual từ 0h00 đến 8h59
+            actual_until_hour = self.revenue_helper.get_daily_actual_until_hour(today, current_hour)
+            print(f"DEBUG: Actual từ 0h00 đến <{current_hour}h (tức là từ 0h00 đến {current_hour - 1}h59) = {actual_until_hour}")
+            
+            # Tính EOD = actual / sum(% của các giờ đã qua)
+            if total_percentage_passed > 0 and actual_until_hour > 0:
+                eod_value = float(actual_until_hour / total_percentage_passed)
+                print(f"\nDEBUG: EOD = {actual_until_hour} / {total_percentage_passed} = {eod_value}")
+            else:
+                print(f"\nDEBUG: Không thể tính EOD cho ngày {today}")
+                print(f"DEBUG: total_percentage_passed = {total_percentage_passed}")
+                print(f"DEBUG: actual_until_hour = {actual_until_hour}")
+                if total_percentage_passed == 0:
+                    print(f"DEBUG: Lý do: Tổng % của các giờ đã qua = 0 (không có data)")
+                if actual_until_hour == 0:
+                    print(f"DEBUG: Lý do: Actual từ đầu ngày = 0 (chưa có doanh thu)")
+        else:
+            print(f"\n=== DEBUG: Không tính EOD ===")
+            print(f"DEBUG: Ngày hiện tại ({today}) không nằm trong tháng đang tính ({target_month}/{target_year})")
+        
         results = []
         for calendar_date, day_data in all_days.items():
             kpi_day_initial = day_data['kpi_day_initial']
@@ -356,6 +417,23 @@ class KPIDayCalculator:
                     # Ngày chưa qua và không có actual: không có gap (None) - giữ logic cũ
                     gap = None
             
+            # Set eod:
+            # - Ngày hiện tại: tính EOD theo công thức
+            # - Ngày đã qua: eod = actual (luôn có giá trị, nếu không có actual thì = 0)
+            # - Ngày chưa qua: eod = None
+            if calendar_date == today:
+                # Ngày hiện tại: dùng EOD đã tính
+                eod = eod_value
+            elif calendar_date < today:
+                # Ngày đã qua: eod = actual (luôn có giá trị, nếu không có actual thì = 0)
+                if calendar_date in actuals:
+                    eod = float(actuals[calendar_date])
+                else:
+                    eod = 0.0  # Nếu không có actual thì eod = 0
+            else:
+                # Ngày chưa qua: eod = None
+                eod = None
+            
             results.append({
                 'calendar_date': calendar_date,
                 'year': day_data['year'],
@@ -368,7 +446,8 @@ class KPIDayCalculator:
                 'weighted_left': float(weighted_left),
                 'actual_amount': actual_amount_value,
                 'gap': float(gap) if gap is not None else None,
-                'kpi_day_adjustment': float(kpi_day_adjustment)
+                'kpi_day_adjustment': float(kpi_day_adjustment),
+                'eod': eod
             })
         
         return results
@@ -466,24 +545,35 @@ class KPIDayCalculator:
             kpi_month = kpi_month_map.get((year, month), 0)
             
             # Lấy actual và tính gap, weighted_left
-            actual = actual_map.get(calendar_date)
             kpi_day_initial = current_data.get('kpi_day_initial', row['kpi_day_initial'])
             uplift = current_data.get('uplift', row.get('uplift', 0))
             today = date.today()
             
+            # Chỉ set actual = 0 cho ngày hiện tại và ngày đã qua
+            # Ngày chưa tới thì actual = None
+            if calendar_date <= today:
+                actual = actual_map.get(calendar_date, 0)  # Nếu không có actual thì = 0
+            else:
+                actual = actual_map.get(calendar_date)  # Ngày chưa tới: None nếu không có
+            
             # Tính weighted_left và gap
-            if actual is not None:
-                # Ngày có actual: gap = actual - kpi_day_initial, weighted_left = 0
+            # actual đã được set = 0 nếu không có (cho ngày <= today), nên chỉ cần check != 0
+            if actual is not None and actual != 0:
+                # Ngày có actual (actual > 0): gap = actual - kpi_day_initial, weighted_left = 0
                 weighted_left = 0
                 gap = actual - kpi_day_initial
             elif calendar_date < today:
-                # Ngày đã qua và không có actual: gap = -kpi_day_initial, weighted_left = 0
+                # Ngày đã qua và không có actual (actual = 0): gap = -kpi_day_initial, weighted_left = 0
                 weighted_left = 0
                 gap = 0 - kpi_day_initial
             else:
                 # Ngày chưa qua và không có actual: weighted_left = uplift, gap = None (giữ logic cũ)
                 weighted_left = uplift
                 gap = None
+            
+            # Xử lý eod: nếu None thì giữ None (giống như actual và gap)
+            # ClickHouse sẽ tự động xử lý None cho Nullable columns
+            eod_value = row.get('eod')
             
             data.append([
                 calendar_date,
@@ -496,10 +586,11 @@ class KPIDayCalculator:
                 current_data.get('weight', 0),
                 current_data.get('total_weight_month', 0),
                 current_data.get('kpi_day_initial', row['kpi_day_initial']),
-                actual,  # actual từ transactions
-                gap,     # gap được tính theo logic mới
+                actual,  # actual từ transactions (có thể None)
+                gap,     # gap được tính theo logic mới (có thể None)
                 row['kpi_day_adjustment'],
-                weighted_left,  # weighted_left: 0 nếu có actual, = weight nếu không có actual
+                weighted_left,  # weighted_left: 0 nếu có actual, = uplift nếu không có actual
+                eod_value,  # eod: chỉ có giá trị cho ngày hiện tại, None cho các ngày khác
                 now,
                 now
             ])
@@ -507,7 +598,7 @@ class KPIDayCalculator:
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
             'kpi_month', 'uplift', 'weight', 'total_weight_month',
-            'kpi_day_initial', 'actual', 'gap', 'kpi_day_adjustment', 'weighted_left', 'created_at', 'updated_at'
+            'kpi_day_initial', 'actual', 'gap', 'kpi_day_adjustment', 'weighted_left', 'eod', 'created_at', 'updated_at'
         ]
         
         self.client.insert("hskcdp.kpi_day", data, column_names=columns)

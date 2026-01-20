@@ -6,7 +6,7 @@ class Constants:
     KPI_YEAR_2026: int = 2026
     
     # Total KPI target for 2026
-    KPI_TOTAL_2026: float = 8000000000000
+    KPI_TOTAL_2026: float = 50000000000
 
     DATE_LABELS = [
                 'Normal day',  # Baseline

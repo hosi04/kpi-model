@@ -314,4 +314,73 @@ class RevenueQueryHelper:
         if result.result_rows and result.result_rows[0][0] > 0:
             return True
         return False
+    
+    # EOD (END OF DAY) RELATED QUERIES
+    
+    def get_hourly_revenue_percentage(self, days_back: int = 30) -> Dict[int, float]:
+        """
+        Tính % doanh thu theo giờ (0-23h) trong N ngày gần nhất từ transactions
+        Returns: dict {hour: percentage} ví dụ {0: 0.05, 1: 0.10, ..., 23: 0.08}
+        Tổng tất cả các % = 1.0
+        """
+        query = f"""
+            SELECT 
+                toHour(t.created_at) as hour,
+                SUM(t.transaction_total) as hour_revenue
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            WHERE toDate(t.created_at) >= today() - INTERVAL {days_back} DAY
+              AND t.status NOT IN ('Canceled', 'Cancel')
+            GROUP BY hour
+            ORDER BY hour
+        """
+        
+        result = self.client.query(query)
+        
+        # Tính tổng revenue của tất cả các giờ
+        total_revenue = Decimal('0')
+        hour_revenues = {}
+        
+        for row in result.result_rows:
+            hour = int(row[0])
+            revenue = Decimal(str(row[1]))
+            hour_revenues[hour] = revenue
+            total_revenue += revenue
+        
+        # Tính % cho từng giờ
+        hourly_percentages = {}
+        if total_revenue > 0:
+            for hour in range(24):
+                if hour in hour_revenues:
+                    percentage = float(hour_revenues[hour] / total_revenue)
+                    hourly_percentages[hour] = percentage
+                else:
+                    hourly_percentages[hour] = 0.0
+        else:
+            # Nếu không có data, set tất cả = 0
+            for hour in range(24):
+                hourly_percentages[hour] = 0.0
+        
+        return hourly_percentages
+    
+    def get_daily_actual_until_hour(self, target_date: date, until_hour: int) -> Decimal:
+        """
+        Lấy actual revenue từ đầu ngày đến < giờ hiện tại (0h00 đến <until_hour)
+        Ví dụ: until_hour = 9 thì lấy actual từ 0h00 đến 8h59 (không bao gồm 9h00)
+        Nếu chạy lúc 9h05 thì until_hour = 9, lấy actual từ 0h đến <9h
+        Returns: tổng actual từ 0h00 đến <until_hour
+        """
+        query = f"""
+            SELECT 
+                SUM(t.transaction_total) as actual_amount
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            WHERE toDate(t.created_at) = '{target_date}'
+              AND toHour(t.created_at) < {until_hour}
+              AND t.status NOT IN ('Canceled', 'Cancel')
+        """
+        
+        result = self.client.query(query)
+        if result.result_rows and result.result_rows[0][0] is not None:
+            return Decimal(str(result.result_rows[0][0]))
+        else:
+            return Decimal('0')
 

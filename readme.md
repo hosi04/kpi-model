@@ -1,6 +1,74 @@
 **Run command**
+- python -m src.etl.month_base
+- python -m src.etl.kpi_day_metadata
+- python -m src.etl.kpi_month
 - python -m src.etl.kpi_day
-- python -m src.etl.day_actual_loader
+
+**Pipeline Workflow (Airflow Integration)**
+
+### Overview
+Pipeline tính toán KPI từ tháng (month) xuống ngày (day), với cả 2 phần đều chạy **hourly**.
+
+### Dependencies và Thứ tự chạy:
+
+#### 1. **month_base.py** (Chạy một lần hoặc khi cần update base KPI)
+- **Mục đích**: Tính base KPI (`kpi_initial`) cho 12 tháng từ revenue 2025
+- **Input**: `hskcdp.revenue_2025` (bảng tạm - cần refactor sang `object_sql_transactions`)
+- **Output**: `hskcdp.kpi_month_base` (kpi_initial cho từng tháng)
+- **Schedule**: One-time hoặc monthly (khi có thay đổi base KPI)
+- **Dependencies**: Không có
+
+#### 2. **kpi_day_metadata.py** (Chạy **monthly** - đầu mỗi tháng mới)
+- **Mục đích**: Tính metadata (uplift, weight) cho các date_label dựa trên historical data
+- **Input**: `object_sql_transactions` (3 tháng gần nhất)
+- **Output**: `hskcdp.kpi_day_metadata` (uplift, weight cho từng date_label)
+- **Schedule**: **Monthly** (chạy đầu mỗi tháng mới, vì 3 tháng gần nhất sẽ thay đổi)
+  - Ví dụ: Tháng 1/2026 → lấy data từ 10, 11, 12/2025
+  - Tháng 2/2026 → lấy data từ 11, 12/2025 và 1/2026 (cần chạy lại)
+- **Dependencies**: Không có
+
+#### 3. **kpi_month.py** (Chạy **hourly**)
+- **Mục đích**: Tính `kpi_adjustment` cho các tháng, bao gồm EOM (End of Month)
+- **Input**: 
+  - `hskcdp.kpi_month_base` (kpi_initial)
+  - `object_sql_transactions` (actual revenue)
+- **Output**: `hskcdp.kpi_month` (kpi_initial, kpi_adjustment, eom)
+- **Schedule**: **Hourly** (mỗi giờ chạy một lần)
+- **Dependencies**: 
+  - `month_base.py` (cần kpi_month_base)
+  - `object_sql_transactions` (cần actual data)
+
+#### 4. **kpi_day.py** (Chạy **hourly**)
+- **Mục đích**: Tính `kpi_day_initial`, `kpi_day_adjustment`, và `eod` (End of Day) cho các ngày
+- **Input**:
+  - `hskcdp.kpi_month` (kpi_initial từ kpi_month)
+  - `hskcdp.kpi_day_metadata` (uplift, weight)
+  - `object_sql_transactions` (actual revenue)
+- **Output**: `hskcdp.kpi_day` (kpi_day_initial, kpi_day_adjustment, eod)
+- **Schedule**: **Hourly** (mỗi giờ chạy một lần)
+- **Dependencies**:
+  - `kpi_day_metadata.py` (cần uplift, weight)
+  - `kpi_month.py` (cần kpi_initial từ kpi_month)
+  - `object_sql_transactions` (cần actual data)
+
+### Pipeline Flow Diagram:
+```
+month_base.py (one-time/monthly)
+    ↓
+kpi_day_metadata.py (monthly - đầu mỗi tháng mới)
+    ↓
+    ├─→ kpi_month.py (hourly) ──┐
+    │                           │
+    └─→ kpi_day.py (hourly) ←───┘
+         (cần kpi_month.kpi_initial)
+```
+
+### Notes:
+- `kpi_month.py` và `kpi_day.py` đều chạy **hourly** để cập nhật real-time
+- `kpi_day_metadata.py` chạy **monthly** (đầu mỗi tháng mới) vì cần cập nhật 3 tháng gần nhất
+- `kpi_day.py` phụ thuộc vào `kpi_month.py` (cần `kpi_month.kpi_initial`)
+- Cả 2 đều query trực tiếp từ `object_sql_transactions` (không dùng staging tables nữa)
+- `month_base.py` và `kpi_day_metadata.py` có thể chạy song song (không phụ thuộc nhau)
 
 **Formular**
 1. Cách tính kpi_day_adjustment
@@ -45,6 +113,7 @@ CREATE TABLE hskcdp.kpi_day (
   `actual` Nullable(Decimal(40, 15)),
   `gap` Nullable(Decimal(40, 15)),
   `kpi_day_adjustment` Nullable(Decimal(40, 15)),
+  `eod` Nullable(Decimal(40, 15)),
   `created_at` DateTime DEFAULT now (),
   `updated_at` DateTime DEFAULT now ()
 ) ENGINE = ReplacingMergeTree (updated_at)
@@ -53,6 +122,9 @@ ORDER BY
 
 -- DDL để add column weighted_left sau cột weight
 ALTER TABLE hskcdp.kpi_day ADD COLUMN `weighted_left` Decimal(40, 15) AFTER `weight`;
+
+-- DDL để add column eod sau cột kpi_day_adjustment
+ALTER TABLE hskcdp.kpi_day ADD COLUMN `eod` Nullable(Decimal(40, 15)) AFTER `kpi_day_adjustment`;
 
 CREATE TABLE hskcdp.actual_2026_day_staging (
   `year` UInt16,
