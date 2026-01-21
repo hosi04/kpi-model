@@ -7,9 +7,8 @@ from src.utils.clickhouse_client import get_client
 class RevenueQueryHelper:
     def __init__(self):
         self.client = get_client()
-
-    # KPI MONTH RELATED QUERIES
     
+    # KPI MONTH RELATED QUERIES
     def get_avg_rev_normal_day_30_days(self) -> Decimal:
         """
         Lấy avg revenue của Normal day từ 30 ngày gần nhất từ transactions
@@ -170,13 +169,9 @@ class RevenueQueryHelper:
     
     # KPI DAY METADATA RELATED QUERIES (HISTORICAL REVENUE QUERIES)
     
-    def get_historical_revenue_by_date_label(
+    def get_historical_revenue_by_date_label_last_3_months(
         self,
-        historical_start_date: date,
-        historical_end_date: date,
         date_labels: List[str],
-        historical_months: List[int],
-        historical_year: int
     ) -> Dict[str, Dict]:
         """
         Lấy historical revenue data theo date_label từ transactions
@@ -184,19 +179,6 @@ class RevenueQueryHelper:
         Returns: dict {date_label: {'avg_total': float, 'so_ngay_historical': int}}
         """
         date_labels_str = ','.join([f"'{dl}'" for dl in date_labels])
-        
-        # Tính các tháng có thể cross-year
-        month_filters = []
-        first_month = historical_months[0]
-        
-        for month in historical_months:
-            # Xác định năm cho từng tháng
-            # Nếu month < first_month thì đã cross-year (ví dụ: [11, 12, 1] -> tháng 1 ở năm sau)
-            if month < first_month:
-                month_year = historical_year + 1
-            else:
-                month_year = historical_year
-            month_filters.append(f"toDate('{month_year}-{month:02d}-01')")
         
         query = f"""
             SELECT 
@@ -384,3 +366,112 @@ class RevenueQueryHelper:
         else:
             return Decimal('0')
 
+    # KPI CHANNEL METADATA RELATED QUERIES
+    def get_total_revenue_by_date_label_last_3_months(
+        self,
+        date_labels: List[str],
+    ) -> Dict[str, Decimal]:
+        if not date_labels:
+            return {}
+
+        date_labels_str = ",".join([f"'{dl}'" for dl in date_labels])
+
+        query = f"""
+            SELECT
+                d.date_label AS date_label,
+                SUM(t.transaction_total) AS total_revenue
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            INNER JOIN hskcdp.dim_date d
+                ON toDate(t.created_at) = d.calendar_date
+            WHERE toDate(t.created_at) >= today() - INTERVAL 3 MONTH
+              AND d.date_label IN ({date_labels_str})
+              AND t.status NOT IN ('Canceled', 'Cancel')
+              AND NOT (
+                  (toMonth(d.calendar_date) = 6 AND toDayOfMonth(d.calendar_date) BETWEEN 5 AND 7) OR
+                  (toMonth(d.calendar_date) = 9 AND toDayOfMonth(d.calendar_date) BETWEEN 8 AND 10) OR
+                  (toMonth(d.calendar_date) = 11 AND toDayOfMonth(d.calendar_date) BETWEEN 10 AND 12) OR
+                  (toMonth(d.calendar_date) = 12 AND toDayOfMonth(d.calendar_date) BETWEEN 11 AND 13)
+              )
+            GROUP BY d.date_label
+        """
+
+        result = self.client.query(query)
+        return {str(row[0]): Decimal(str(row[1])) for row in result.result_rows}
+
+    def get_revenue_by_date_label_and_channel_from_platform_last_3_months(
+        self,
+        date_labels: List[str],
+    ) -> Dict[str, Dict[str, Decimal]]:
+        if not date_labels:
+            return {}
+
+        date_labels_str = ",".join([f"'{dl}'" for dl in date_labels])
+
+        query = f"""
+            SELECT
+                d.date_label AS date_label,
+                CASE
+                    WHEN t.platform LIKE 'OFFLINE%' THEN 'OFFLINE_HASAKI'
+                    WHEN t.platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
+                    ELSE 'ECOM'
+                END AS channel,
+                SUM(t.transaction_total) AS revenue
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            INNER JOIN hskcdp.dim_date d
+                ON toDate(t.created_at) = d.calendar_date
+            WHERE toDate(t.created_at) >= today() - INTERVAL 3 MONTH
+              AND d.date_label IN ({date_labels_str})
+              AND t.status NOT IN ('Canceled', 'Cancel')
+              AND NOT (
+                  (toMonth(d.calendar_date) = 6 AND toDayOfMonth(d.calendar_date) BETWEEN 5 AND 7) OR
+                  (toMonth(d.calendar_date) = 9 AND toDayOfMonth(d.calendar_date) BETWEEN 8 AND 10) OR
+                  (toMonth(d.calendar_date) = 11 AND toDayOfMonth(d.calendar_date) BETWEEN 10 AND 12) OR
+                  (toMonth(d.calendar_date) = 12 AND toDayOfMonth(d.calendar_date) BETWEEN 11 AND 13)
+              )
+            GROUP BY
+                d.date_label,
+                channel
+        """
+
+        result = self.client.query(query)
+        out: Dict[str, Dict[str, Decimal]] = {}
+        for row in result.result_rows:
+            date_label = str(row[0])
+            channel = str(row[1])
+            revenue = Decimal(str(row[2]))
+            if date_label not in out:
+                out[date_label] = {}
+            out[date_label][channel] = revenue
+        return out
+
+    def get_dim_dates_for_month_excluding_double_days(
+        self,
+        target_year: int,
+        target_month: int,
+    ) -> List:
+        """
+        Lấy danh sách ngày trong dim_date cho 1 tháng, loại trừ các khoảng double-day:
+        - 6/5-7, 9/8-10, 11/10-12, 12/11-13
+        Returns: list of tuples (calendar_date, year, month, day, date_label)
+        """
+        query = f"""
+            SELECT
+                calendar_date,
+                year,
+                month,
+                day,
+                date_label
+            FROM dim_date
+            WHERE year = {target_year}
+              AND month = {target_month}
+              AND NOT (
+                  (month = 6 AND day BETWEEN 5 AND 7) OR
+                  (month = 9 AND day BETWEEN 8 AND 10) OR
+                  (month = 11 AND day BETWEEN 10 AND 12) OR
+                  (month = 12 AND day BETWEEN 11 AND 13)
+              )
+            ORDER BY calendar_date
+        """
+
+        result = self.client.query(query)
+        return result.result_rows
