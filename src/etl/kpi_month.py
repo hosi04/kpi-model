@@ -245,6 +245,271 @@ class KPIAdjustmentCalculator:
         self.client.insert("hskcdp.kpi_month", data, column_names=columns)
         print(f"  - Đã tạo version '{next_version}' với kpi_initial từ version '{current_version}'")
     
+    def get_sum_gap_from_version(self, version: str, target_year: int) -> Decimal:
+        """
+        Lấy tổng gap của một version.
+        """
+        query = f"""
+            SELECT
+                SUM(gap) as sum_gap
+            FROM (
+                SELECT
+                    gap,
+                    row_number() OVER (
+                        PARTITION BY year, month, version
+                        ORDER BY updated_at DESC
+                    ) AS rn
+                FROM hskcdp.kpi_month FINAL
+                WHERE year = {target_year}
+                  AND version = '{version}'
+            )
+            WHERE rn = 1
+        """
+        
+        result = self.client.query(query)
+        if result.result_rows and result.result_rows[0][0] is not None:
+            return Decimal(str(result.result_rows[0][0]))
+        return Decimal('0')
+    
+    def get_kpi_initial_from_version(self, version: str, month: int, target_year: int) -> float:
+        """
+        Lấy kpi_initial của một tháng từ một version.
+        """
+        query = f"""
+            SELECT
+                kpi_initial
+            FROM (
+                SELECT
+                    kpi_initial,
+                    row_number() OVER (
+                        PARTITION BY year, month, version
+                        ORDER BY updated_at DESC
+                    ) AS rn
+                FROM hskcdp.kpi_month FINAL
+                WHERE year = {target_year}
+                  AND version = '{version}'
+                  AND month = {month}
+            )
+            WHERE rn = 1
+            LIMIT 1
+        """
+        
+        result = self.client.query(query)
+        if result.result_rows and result.result_rows[0][0] is not None:
+            return float(result.result_rows[0][0])
+        raise ValueError(f"Không tìm thấy kpi_initial cho version '{version}', month {month}, year {target_year}")
+    
+    def recalculate_version_after_marketing_adjustment(
+        self,
+        version: str,
+        adjusted_month: int,
+        new_kpi_initial: float,
+        target_year: int = None
+    ) -> None:
+        """
+        Tính lại kpi_initial cho version sau khi marketing chỉnh sửa một tháng.
+        
+        LƯU Ý: Hàm này chỉ áp dụng cho version tiếp theo (version N + 1) khi đang ở tháng N.
+        Ví dụ: Đang ở tháng 1 → chỉ có thể chỉnh sửa version "Thang 2" (version tiếp theo).
+        
+        Args:
+            version: Version cần tính lại (ví dụ: "Thang 2") - phải là version tiếp theo
+            adjusted_month: Tháng được marketing chỉnh sửa (ví dụ: 2) - phải là tháng tiếp theo
+            new_kpi_initial: Giá trị kpi_initial mới do marketing đưa ra
+            target_year: Năm (mặc định: KPI_YEAR_2026)
+        
+        Logic:
+        1. adjusted_month_diff = new_kpi_initial - kpi_initial_version1_tháng2
+        2. total_adjusted_gap = Sum(gap) version 1 + adjusted_month_diff
+        3. gap_per_remaining_month = total_adjusted_gap / số_tháng_còn_lại (tháng 3-12)
+        4. kpi_initial_mới = kpi_initial_version1 - gap_per_remaining_month (cho các tháng còn lại)
+        """
+        if target_year is None:
+            target_year = self.constants.KPI_YEAR_2026
+        
+        baseline_version = "Thang 1"
+        
+        print(f"\n=== TÍNH LẠI VERSION SAU KHI MARKETING CHỈNH SỬA ===")
+        print(f"  - Version: {version}")
+        print(f"  - Tháng được chỉnh sửa: {adjusted_month}")
+        print(f"  - kpi_initial mới: {new_kpi_initial}")
+        
+        # Validation: Kiểm tra version có tồn tại không
+        check_version_query = f"""
+            SELECT COUNT(*) as cnt
+            FROM hskcdp.kpi_month FINAL
+            WHERE year = {target_year}
+              AND version = '{version}'
+        """
+        check_version_result = self.client.query(check_version_query)
+        version_exists = check_version_result.result_rows[0][0] > 0 if check_version_result.result_rows else False
+        
+        if not version_exists:
+            raise ValueError(
+                f"Version '{version}' chưa tồn tại trong database. "
+                f"Vui lòng chốt số trước (chạy vào ngày 26) để tạo version này."
+            )
+        
+        # Validation: Kiểm tra version có đủ 12 tháng không
+        check_months_query = f"""
+            SELECT COUNT(DISTINCT month) as cnt
+            FROM (
+                SELECT
+                    month,
+                    row_number() OVER (
+                        PARTITION BY year, month, version
+                        ORDER BY updated_at DESC
+                    ) AS rn
+                FROM hskcdp.kpi_month FINAL
+                WHERE year = {target_year}
+                  AND version = '{version}'
+            )
+            WHERE rn = 1
+        """
+        check_months_result = self.client.query(check_months_query)
+        months_count = check_months_result.result_rows[0][0] if check_months_result.result_rows else 0
+        
+        if months_count != 12:
+            raise ValueError(
+                f"Version '{version}' chưa có đủ 12 tháng (hiện có {months_count} tháng). "
+                f"Vui lòng đảm bảo version đã được tạo đầy đủ."
+            )
+        
+        # Validation: Kiểm tra adjusted_month có hợp lệ không (phải là tháng tiếp theo)
+        # Ví dụ: Đang ở tháng 1 → chỉ có thể chỉnh sửa tháng 2
+        today = date.today()
+        current_month = today.month
+        expected_adjusted_month = current_month + 1 if current_month < 12 else 1
+        
+        if adjusted_month != expected_adjusted_month:
+            print(f"  WARNING: Tháng được chỉnh sửa ({adjusted_month}) không phải tháng tiếp theo ({expected_adjusted_month})")
+            print(f"  Tiếp tục tính toán với tháng {adjusted_month}...")
+        
+        # 1. Lấy kpi_initial của tháng được chỉnh sửa từ version 1 (baseline)
+        kpi_initial_version1_adjusted = self.get_kpi_initial_from_version(
+            baseline_version, adjusted_month, target_year
+        )
+        print(f"  - kpi_initial version 1 tháng {adjusted_month}: {kpi_initial_version1_adjusted}")
+        
+        # 2. Tính chênh lệch của tháng được chỉnh sửa
+        adjusted_month_diff = Decimal(str(new_kpi_initial)) - Decimal(str(kpi_initial_version1_adjusted))
+        print(f"  - Chênh lệch tháng {adjusted_month} = {new_kpi_initial} - {kpi_initial_version1_adjusted} = {adjusted_month_diff}")
+        
+        # 3. Lấy Sum(gap) của version 1
+        sum_gap_version1 = self.get_sum_gap_from_version(baseline_version, target_year)
+        print(f"  - Sum(gap) version 1: {sum_gap_version1}")
+        
+        # 4. Tính tổng gap mới sau khi điều chỉnh
+        total_adjusted_gap = sum_gap_version1 + adjusted_month_diff
+        print(f"  - Tổng gap mới = Sum(gap) + chênh lệch = {sum_gap_version1} + {adjusted_month_diff} = {total_adjusted_gap}")
+        
+        # 5. Tính số tháng còn lại (chỉ các tháng SAU tháng được chỉnh sửa)
+        # Ví dụ: chỉnh sửa tháng 2 → chỉ tính lại tháng 3-12
+        # Các tháng TRƯỚC tháng được chỉnh sửa (1 đến adjusted_month-1) giữ nguyên
+        remaining_months = [m for m in range(adjusted_month + 1, 13)]
+        print(f"  - Số tháng còn lại cần tính lại (sau tháng {adjusted_month}): {remaining_months} ({len(remaining_months)} tháng)")
+        print(f"  - Các tháng trước tháng {adjusted_month} sẽ giữ nguyên giá trị cũ")
+        
+        # 6. Tính gap phân bổ cho mỗi tháng còn lại
+        if len(remaining_months) > 0:
+            gap_per_remaining_month = total_adjusted_gap / Decimal(str(len(remaining_months)))
+        else:
+            gap_per_remaining_month = Decimal('0')
+        print(f"  - Gap phân bổ cho mỗi tháng còn lại = {total_adjusted_gap} / {len(remaining_months)} = {gap_per_remaining_month}")
+        
+        # 7. Tính lại kpi_initial cho các tháng còn lại và update vào database
+        now = datetime.now()
+        data_to_update = []
+        
+        # Lấy created_at cho tháng được chỉnh sửa
+        get_created_at_adjusted_query = f"""
+            SELECT created_at
+            FROM (
+                SELECT
+                    created_at,
+                    row_number() OVER (
+                        PARTITION BY year, month, version
+                        ORDER BY updated_at DESC
+                    ) AS rn
+                FROM hskcdp.kpi_month FINAL
+                WHERE year = {target_year}
+                  AND version = '{version}'
+                  AND month = {adjusted_month}
+            )
+            WHERE rn = 1
+            LIMIT 1
+        """
+        created_at_adjusted_result = self.client.query(get_created_at_adjusted_query)
+        created_at_adjusted = created_at_adjusted_result.result_rows[0][0] if created_at_adjusted_result.result_rows else now
+        
+        # Update tháng được chỉnh sửa (giữ nguyên giá trị marketing đưa ra)
+        data_to_update.append([
+            version,
+            target_year,
+            adjusted_month,
+            new_kpi_initial,  # kpi_initial mới từ marketing
+            None,  # actual_2026 (giữ nguyên, sẽ được tính lại sau)
+            None,  # gap (giữ nguyên, sẽ được tính lại sau)
+            None,  # eom (giữ nguyên, sẽ được tính lại sau)
+            new_kpi_initial,  # kpi_adjustment (tạm thời = kpi_initial, sẽ được tính lại sau)
+            created_at_adjusted,  # created_at (giữ nguyên)
+            now    # updated_at
+        ])
+        
+        # Tính lại kpi_initial cho các tháng SAU tháng được chỉnh sửa
+        print(f"\n  - Tính lại kpi_initial cho các tháng sau tháng {adjusted_month}:")
+        for month in remaining_months:
+            kpi_initial_version1 = self.get_kpi_initial_from_version(
+                baseline_version, month, target_year
+            )
+            kpi_initial_new = float(Decimal(str(kpi_initial_version1)) - gap_per_remaining_month)
+            
+            print(f"    Tháng {month}: {kpi_initial_version1} - {gap_per_remaining_month} = {kpi_initial_new}")
+            
+            # Lấy created_at hiện tại để giữ nguyên
+            get_created_at_query = f"""
+                SELECT created_at
+                FROM (
+                    SELECT
+                        created_at,
+                        row_number() OVER (
+                            PARTITION BY year, month, version
+                            ORDER BY updated_at DESC
+                        ) AS rn
+                    FROM hskcdp.kpi_month FINAL
+                    WHERE year = {target_year}
+                      AND version = '{version}'
+                      AND month = {month}
+                )
+                WHERE rn = 1
+                LIMIT 1
+            """
+            created_at_result = self.client.query(get_created_at_query)
+            created_at = created_at_result.result_rows[0][0] if created_at_result.result_rows else now
+            
+            data_to_update.append([
+                version,
+                target_year,
+                month,
+                kpi_initial_new,  # kpi_initial mới
+                None,  # actual_2026 (giữ nguyên, sẽ được tính lại sau)
+                None,  # gap (giữ nguyên, sẽ được tính lại sau)
+                None,  # eom (giữ nguyên, sẽ được tính lại sau)
+                kpi_initial_new,  # kpi_adjustment (tạm thời = kpi_initial, sẽ được tính lại sau)
+                created_at,  # created_at (giữ nguyên)
+                now    # updated_at
+            ])
+        
+        # 8. Update vào database
+        columns = [
+            'version', 'year', 'month', 'kpi_initial', 'actual_2026', 'gap',
+            'eom', 'kpi_adjustment', 'created_at', 'updated_at'
+        ]
+        
+        self.client.insert("hskcdp.kpi_month", data_to_update, column_names=columns)
+        print(f"\n  - Đã update {len(data_to_update)} records vào version '{version}'")
+        print(f"=== HOÀN TẤT TÍNH LẠI ===\n")
+    
     def calculate_kpi_adjustment(self, target_month: Optional[int] = None) -> List[Dict]:
         if target_month is None:
             target_month = self.revenue_helper.get_max_month_with_actual(self.constants.KPI_YEAR_2026)
@@ -388,7 +653,18 @@ class KPIAdjustmentCalculator:
                 row['month'],
                 row['kpi_initial'],
                 row['actual_2026'],
-                row['gap'],
+                row['gap'],        calculator.recalculate_version_after_marketing_adjustment(
+            version=version,
+            adjusted_month=month,
+            new_kpi_initial=new_kpi_initial
+        )
+    else:
+        # Chạy bình thường
+        print("Calculating KPI adjustment...")
+        result = calculator.save_kpi_adjustment()
+        
+        print(f"Successfully saved {len(result)} records to kpi_month")
+
                 row['eom'],
                 row['kpi_adjustment'],
                 created_at,
@@ -415,10 +691,37 @@ class KPIAdjustmentCalculator:
 
 
 if __name__ == "__main__":
+    import sys
+    
     constants = Constants()
     calculator = KPIAdjustmentCalculator(constants)
     
-    print("Calculating KPI adjustment...")
-    result = calculator.save_kpi_adjustment()
-    
-    print(f"Successfully saved {len(result)} records to kpi_month")
+    # Kiểm tra xem có phải là lệnh tính lại sau khi marketing chỉnh sửa không
+    # Usage: python -m src.etl.kpi_month --recalculate-version "Thang 2" --month 2 --new-kpi-initial 15
+    if len(sys.argv) > 1 and sys.argv[1] == "--recalculate-version":
+        if len(sys.argv) < 6:
+            print("Thiếu tham số!")
+            print("Usage: python -m src.etl.kpi_month --recalculate-version <version> --month <month> --new-kpi-initial <value>")
+            print("Example: python -m src.etl.kpi_month --recalculate-version 'Thang 2' --month 2 --new-kpi-initial 15")
+            sys.exit(1)
+        
+        version = sys.argv[2]
+        month = int(sys.argv[4])
+        new_kpi_initial = float(sys.argv[6])
+        
+        print(f"Tính lại version sau khi marketing chỉnh sửa:")
+        print(f"  - Version: {version}")
+        print(f"  - Tháng: {month}")
+        print(f"  - kpi_initial mới: {new_kpi_initial}\n")
+        
+        calculator.recalculate_version_after_marketing_adjustment(
+            version=version,
+            adjusted_month=month,
+            new_kpi_initial=new_kpi_initial
+        )
+    else:
+        # Chạy bình thường
+        print("Calculating KPI adjustment...")
+        result = calculator.save_kpi_adjustment()
+        
+        print(f"Successfully saved {len(result)} records to kpi_month")
