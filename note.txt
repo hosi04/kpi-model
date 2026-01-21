@@ -1,1 +1,0 @@
-sudo chown -R ngocthanh:devgroup airflow/dags/ src/ sql/
