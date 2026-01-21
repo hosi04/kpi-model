@@ -113,6 +113,138 @@ class KPIAdjustmentCalculator:
     def is_month_ended(self, target_year: int, target_month: int) -> bool:
         return self.revenue_helper.check_month_ended(target_year, target_month)
     
+    def get_current_version_number(self, target_year: int, target_month: int) -> int:
+        """
+        Xác định version number hiện tại dựa trên ngày.
+        Logic:
+        - Ngày <= 25: version = tháng hiện tại
+        - Ngày >= 26 trong tháng hiện tại: version = tháng hiện tại (vẫn dùng version cũ)
+        - Ngày 1 tháng sau: version = tháng tiếp theo (chuyển sang version mới)
+        """
+        today = date.today()
+        
+        # Nếu đang ở tháng khác với target_month → đã qua tháng mới
+        if today.year != target_year or today.month != target_month:
+            # Đã qua tháng mới → dùng version của tháng tiếp theo
+            if target_month == 12:
+                return 1  # Năm sau
+            else:
+                return target_month + 1
+        else:
+            # Vẫn trong tháng hiện tại → luôn dùng version của tháng hiện tại
+            return target_month
+    
+    def get_baseline_version_number(self, current_version_number: int) -> int:
+        """
+        Lấy baseline version number (version trước đó).
+        Logic:
+        - Version 1: baseline = 1 (seed sẵn)
+        - Version khác: baseline = version trước đó
+        """
+        if current_version_number == 1:
+            return 1
+        else:
+            return current_version_number - 1
+    
+    def create_new_version_from_day_26(self, target_year: int, target_month: int) -> None:
+        """
+        Chốt số vào ngày 26: Lấy kpi_adjustment của version hiện tại → làm kpi_initial cho version tiếp theo.
+        Chỉ chạy khi today.day == 26 và today.month == target_month.
+        """
+        today = date.today()
+
+        # Chỉ chạy vào ngày 26 của tháng hiện tại
+        if today.day != 26 or today.month != target_month or today.year != target_year:
+            return
+        
+        current_version = f"Thang {target_month}"
+        
+        # Xác định version tiếp theo
+        if target_month == 12:
+            next_version_number = 1
+            next_year = target_year + 1
+        else:
+            next_version_number = target_month + 1
+            next_year = target_year
+        
+        next_version = f"Thang {next_version_number}"
+        
+        print(f"DEBUG: Chốt số vào ngày 26 - Tạo version mới")
+        print(f"  - Current version: {current_version}")
+        print(f"  - Next version: {next_version} (năm {next_year})")
+        
+        # Kiểm tra version mới đã tồn tại chưa
+        check_query = f"""
+            SELECT COUNT(*) as cnt
+            FROM hskcdp.kpi_month FINAL
+            WHERE year = {next_year}
+              AND version = '{next_version}'
+        """
+        check_result = self.client.query(check_query)
+        if check_result.result_rows and check_result.result_rows[0][0] > 0:
+            print(f"  - Version '{next_version}' đã tồn tại, bỏ qua việc tạo mới")
+            return
+        
+        # Lấy kpi_adjustment mới nhất của version hiện tại cho 12 tháng
+        current_version_query = f"""
+            SELECT
+                month,
+                kpi_adjustment
+            FROM (
+                SELECT
+                    month,
+                    kpi_adjustment,
+                    row_number() OVER (
+                        PARTITION BY year, month, version
+                        ORDER BY updated_at DESC
+                    ) AS rn
+                FROM hskcdp.kpi_month FINAL
+                WHERE year = {target_year}
+                  AND version = '{current_version}'
+            )
+            WHERE rn = 1
+            ORDER BY month
+        """
+        
+        current_version_result = self.client.query(current_version_query)
+        current_kpi_adjustments = {int(row[0]): float(row[1]) for row in current_version_result.result_rows}
+        
+        if len(current_kpi_adjustments) != 12:
+            print(f"  - WARNING: Version '{current_version}' chưa có đủ 12 tháng, không thể tạo version mới")
+            return
+        
+        print(f"  - Lấy kpi_adjustment từ version '{current_version}' cho 12 tháng:")
+        for month in sorted(current_kpi_adjustments.keys()):
+            print(f"    Tháng {month}: {current_kpi_adjustments[month]}")
+        
+        # Tạo version mới với kpi_initial = kpi_adjustment của version cũ
+        now = datetime.now()
+        data = []
+        
+        for month in range(1, 13):
+            kpi_initial = current_kpi_adjustments[month]
+            
+            data.append([
+                next_version,
+                next_year,
+                month,
+                kpi_initial,  # kpi_initial = kpi_adjustment của version cũ
+                None,  # actual_2026
+                None,  # gap
+                None,  # eom
+                kpi_initial,  # kpi_adjustment (ban đầu = kpi_initial)
+                now,  # created_at
+                now   # updated_at
+            ])
+        
+        columns = [
+            'version', 'year', 'month', 'kpi_initial', 'actual_2026', 'gap',
+            'eom', 'kpi_adjustment', 'created_at', 'updated_at'
+        ]
+        
+        self.client.insert("hskcdp.kpi_month", data, column_names=columns)
+        print(f"  - Đã tạo version '{next_version}' với kpi_initial từ version '{current_version}'")
+    
     def calculate_kpi_adjustment(self, target_month: Optional[int] = None) -> List[Dict]:
         if target_month is None:
             target_month = self.revenue_helper.get_max_month_with_actual(self.constants.KPI_YEAR_2026)
@@ -223,6 +355,14 @@ class KPIAdjustmentCalculator:
         return results
     
     def save_kpi_adjustment(self, target_month: Optional[int] = None) -> List[Dict]:
+        if target_month is None:
+            target_month = self.revenue_helper.get_max_month_with_actual(self.constants.KPI_YEAR_2026)
+            
+            if target_month == 0:
+                target_month = 1
+        
+        # QUAN TRỌNG: Tính toán và update version hiện tại TRƯỚC
+        # Sau đó mới chốt số và tạo version mới (để đảm bảo lấy kpi_adjustment mới nhất)
         results = self.calculate_kpi_adjustment(target_month)
         
         now = datetime.now()
@@ -261,6 +401,15 @@ class KPIAdjustmentCalculator:
         ]
         
         self.client.insert("hskcdp.kpi_month", data, column_names=columns)
+        
+        # SAU KHI đã update version hiện tại → mới chốt số và tạo version mới
+        # (để đảm bảo lấy kpi_adjustment mới nhất)
+        # Kiểm tra: nếu là ngày 26 của tháng hiện tại → chốt số và tạo version mới
+        today = date.today()
+        if today.day == 26 and today.month == target_month and today.year == self.constants.KPI_YEAR_2026:
+            print(f"\n=== CHỐT SỐ VÀO NGÀY 26 ===")
+            self.create_new_version_from_day_26(self.constants.KPI_YEAR_2026, target_month)
+            print(f"=== HOÀN TẤT CHỐT SỐ ===\n")
         
         return results
 
