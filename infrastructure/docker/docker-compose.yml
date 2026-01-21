@@ -1,0 +1,124 @@
+name: cdp-kpi-models
+x-airflow-common: &airflow-common
+  build:
+    context: ../..
+    dockerfile: infrastructure/docker/airflow/Dockerfile
+  env_file:
+    - .env
+  environment: &airflow-common-env {}
+  volumes:
+    - ../../airflow/dags:/opt/airflow/dags
+    - ../../src:/opt/airflow/src
+    - .env:/opt/airflow/.env
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+  airflow-apiserver:
+    <<: *airflow-common
+    command: api-server
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    ports:
+      - "8793:8793"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-apiserver:
+        condition: service_healthy
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        if [[ -z "${AIRFLOW_UID}" ]]; then
+          export AIRFLOW_UID=$(id -u)
+        fi
+        echo ">>> Preparing folders"
+        mkdir -p /opt/airflow/{logs,dags,plugins,config}
+
+        echo ">>> Airflow version"
+        /entrypoint airflow version
+        echo ">>> Running airflow config list"
+        /entrypoint airflow config list >/dev/null
+        echo ">>> Migrating database"
+        airflow db migrate
+
+        echo ">>> Creating admin user airflow/airflow"
+        airflow users create \
+          --username airflow \
+          --password airflow \
+          --firstname Airflow \
+          --lastname Admin \
+          --role Admin \
+          --email admin@example.com || true
+        echo ">>> Fixing folder permissions"
+        chown -R "${AIRFLOW_UID}:0" /opt/airflow/logs
+        chmod -R 777 /opt/airflow/logs
+        chown -R "${AIRFLOW_UID}:0" /opt/airflow/{data,dtemp,models} 2>/dev/null || true
+        echo ">>> Init complete"
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+    user: "0:0"
+volumes:
+  postgres-db-volume:
