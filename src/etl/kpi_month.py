@@ -114,13 +114,6 @@ class KPIAdjustmentCalculator:
         return self.revenue_helper.check_month_ended(target_year, target_month)
     
     def get_current_version_number(self, target_year: int, target_month: int) -> int:
-        """
-        Xác định version number hiện tại dựa trên ngày.
-        Logic:
-        - Ngày <= 25: version = tháng hiện tại
-        - Ngày >= 26 trong tháng hiện tại: version = tháng hiện tại (vẫn dùng version cũ)
-        - Ngày 1 tháng sau: version = tháng tiếp theo (chuyển sang version mới)
-        """
         today = date.today()
         
         # Nếu đang ở tháng khác với target_month → đã qua tháng mới
@@ -135,22 +128,12 @@ class KPIAdjustmentCalculator:
             return target_month
     
     def get_baseline_version_number(self, current_version_number: int) -> int:
-        """
-        Lấy baseline version number (version trước đó).
-        Logic:
-        - Version 1: baseline = 1 (seed sẵn)
-        - Version khác: baseline = version trước đó
-        """
         if current_version_number == 1:
             return 1
         else:
             return current_version_number - 1
     
     def create_new_version_from_day_26(self, target_year: int, target_month: int) -> None:
-        """
-        Chốt số vào ngày 26: Lấy kpi_adjustment của version hiện tại → làm kpi_initial cho version tiếp theo.
-        Chỉ chạy khi today.day == 26 và today.month == target_month.
-        """
         today = date.today()
 
         # Chỉ chạy vào ngày 26 của tháng hiện tại
@@ -306,24 +289,6 @@ class KPIAdjustmentCalculator:
         new_kpi_initial: float,
         target_year: int = None
     ) -> None:
-        """
-        Tính lại kpi_initial cho version sau khi marketing chỉnh sửa một tháng.
-        
-        LƯU Ý: Hàm này chỉ áp dụng cho version tiếp theo (version N + 1) khi đang ở tháng N.
-        Ví dụ: Đang ở tháng 1 → chỉ có thể chỉnh sửa version "Thang 2" (version tiếp theo).
-        
-        Args:
-            version: Version cần tính lại (ví dụ: "Thang 2") - phải là version tiếp theo
-            adjusted_month: Tháng được marketing chỉnh sửa (ví dụ: 2) - phải là tháng tiếp theo
-            new_kpi_initial: Giá trị kpi_initial mới do marketing đưa ra
-            target_year: Năm (mặc định: KPI_YEAR_2026)
-        
-        Logic:
-        1. adjusted_month_diff = new_kpi_initial - kpi_initial_version1_tháng2
-        2. total_adjusted_gap = Sum(gap) version 1 + adjusted_month_diff
-        3. gap_per_remaining_month = total_adjusted_gap / số_tháng_còn_lại (tháng 3-12)
-        4. kpi_initial_mới = kpi_initial_version1 - gap_per_remaining_month (cho các tháng còn lại)
-        """
         if target_year is None:
             target_year = self.constants.KPI_YEAR_2026
         
