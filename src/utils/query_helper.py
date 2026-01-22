@@ -535,3 +535,78 @@ class RevenueQueryHelper:
             })
         
         return kpi_day_channel_data
+    
+    def get_actual_by_channel_and_date(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> Dict[date, Dict[str, float]]:
+        """
+        Lấy actual revenue theo channel và date từ transactions
+        Platform được map thành channel: ONLINE_HASAKI, OFFLINE_HASAKI, ECOM
+        Loại trừ OFFLINE_SPA
+        Returns: dict {calendar_date: {channel: actual_amount}}
+        """
+        query = f"""
+            SELECT 
+                toDate(t.created_at) as calendar_date,
+                CASE 
+                    WHEN t.platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
+                    WHEN t.platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
+                    ELSE 'ECOM'
+                END as channel,
+                SUM(t.transaction_total) as actual_amount
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            WHERE toYear(t.created_at) = {target_year}
+              AND toMonth(t.created_at) = {target_month}
+              AND t.status NOT IN ('Canceled', 'Cancel')
+            GROUP BY calendar_date, channel
+        """
+        
+        result = self.client.query(query)
+        
+        actual_by_date = {}
+        for row in result.result_rows:
+            calendar_date = row[0]
+            channel = row[1]
+            actual_amount = float(row[2])
+            
+            if calendar_date not in actual_by_date:
+                actual_by_date[calendar_date] = {}
+            
+            actual_by_date[calendar_date][channel] = actual_amount
+        
+        return actual_by_date
+    
+    def get_kpi_day_adjustment_by_date(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> Dict[date, Decimal]:
+        """
+        Lấy kpi_day_adjustment theo date từ kpi_day
+        Returns: dict {calendar_date: kpi_day_adjustment}
+        """
+        query = f"""
+            SELECT 
+                calendar_date,
+                kpi_day_adjustment
+            FROM hskcdp.kpi_day FINAL
+            WHERE year = {target_year}
+              AND month = {target_month}
+            ORDER BY calendar_date
+        """
+        
+        result = self.client.query(query)
+        
+        kpi_day_adjustment_by_date = {}
+        for row in result.result_rows:
+            calendar_date = row[0]
+            kpi_day_adjustment = row[1]
+            
+            if kpi_day_adjustment is not None:
+                kpi_day_adjustment_by_date[calendar_date] = Decimal(str(kpi_day_adjustment))
+            else:
+                kpi_day_adjustment_by_date[calendar_date] = None
+        
+        return kpi_day_adjustment_by_date

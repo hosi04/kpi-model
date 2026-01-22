@@ -23,6 +23,18 @@ class KPIDayChannelCalculator:
             target_month=target_month
         )
         
+        # Lấy actual revenue theo channel và date
+        actual_by_date = self.revenue_helper.get_actual_by_channel_and_date(
+            target_year=target_year,
+            target_month=target_month
+        )
+        
+        # Lấy kpi_day_adjustment theo date
+        kpi_day_adjustment_by_date = self.revenue_helper.get_kpi_day_adjustment_by_date(
+            target_year=target_year,
+            target_month=target_month
+        )
+        
         results = []
         
         for row in kpi_day_channel_data:
@@ -35,8 +47,21 @@ class KPIDayChannelCalculator:
             revenue_percentage_adj = row['revenue_percentage_adj']
             kpi_day_initial = row['kpi_day_initial']
             
-            # Calculate kpi_day_channel using revenue_percentage_adj
-            kpi_day_channel = kpi_day_initial * revenue_percentage_adj
+            # Calculate kpi_day_channel_initial using revenue_percentage_adj
+            kpi_day_channel_initial = kpi_day_initial * revenue_percentage_adj
+            
+            # Lấy actual revenue cho channel này trong ngày này
+            actual = actual_by_date.get(calendar_date, {}).get(channel, 0.0)
+            
+            # Calculate gap = actual - kpi_day_channel_initial
+            gap = actual - float(kpi_day_channel_initial)
+            
+            # Calculate kpi_adjustment = kpi_day_adjustment * revenue_percentage_adj
+            kpi_day_adjustment = kpi_day_adjustment_by_date.get(calendar_date)
+            if kpi_day_adjustment is not None:
+                kpi_adjustment = float(kpi_day_adjustment) * float(revenue_percentage_adj)
+            else:
+                kpi_adjustment = None
             
             results.append({
                 'calendar_date': calendar_date,
@@ -45,8 +70,11 @@ class KPIDayChannelCalculator:
                 'day': day,
                 'date_label': date_label,
                 'channel': channel,
-                'revenue_percentage': float(revenue_percentage_adj),  # Store the adjusted percentage
-                'kpi_day_channel_initial': float(kpi_day_channel)
+                'revenue_percentage': float(revenue_percentage_adj),
+                'kpi_day_channel_initial': float(kpi_day_channel_initial),
+                'actual': actual,
+                'gap': gap,
+                'kpi_adjustment': kpi_adjustment
             })
         
         return results
@@ -68,6 +96,9 @@ class KPIDayChannelCalculator:
                 row['channel'],
                 row['revenue_percentage'],
                 row['kpi_day_channel_initial'],
+                row['actual'],
+                row['gap'],
+                row['kpi_adjustment'],
                 now,
                 now
             ])
@@ -75,6 +106,7 @@ class KPIDayChannelCalculator:
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
             'channel', 'revenue_percentage', 'kpi_day_channel_initial',
+            'actual', 'gap', 'kpi_adjustment',
             'created_at', 'updated_at'
         ]
         
