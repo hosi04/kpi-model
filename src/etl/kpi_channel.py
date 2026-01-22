@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict
 from src.utils.clickhouse_client import get_client
 from src.utils.constants import Constants
@@ -36,6 +36,7 @@ class KPIDayChannelCalculator:
         )
         
         results = []
+        today = date.today()
         
         for row in kpi_day_channel_data:
             calendar_date = row['calendar_date']
@@ -51,17 +52,31 @@ class KPIDayChannelCalculator:
             kpi_day_channel_initial = kpi_day_initial * revenue_percentage_adj
             
             # Lấy actual revenue cho channel này trong ngày này
-            actual = actual_by_date.get(calendar_date, {}).get(channel, 0.0)
+            actual = actual_by_date.get(calendar_date, {}).get(channel, 0.0)       
             
-            # Calculate gap = actual - kpi_day_channel_initial
-            gap = actual - float(kpi_day_channel_initial)
-            
-            # Calculate kpi_adjustment = kpi_day_adjustment * revenue_percentage_adj
-            kpi_day_adjustment = kpi_day_adjustment_by_date.get(calendar_date)
-            if kpi_day_adjustment is not None:
-                kpi_adjustment = float(kpi_day_adjustment) * float(revenue_percentage_adj)
+            # Calculate kpi_adjustment:
+            # - Với những ngày đã qua: kpi_adjustment = actual
+            # - Với ngày hiện tại và tương lai: kpi_adjustment = kpi_day_adjustment * revenue_percentage_adj
+            if calendar_date < today:
+                # Ngày đã qua: kpi_adjustment = actual
+                kpi_adjustment = actual
+                gap = actual - float(kpi_day_channel_initial)
+            elif calendar_date == today:
+                # Ngày hiện tại: gap = actual - kpi_day_channel_initial, kpi_adjustment = kpi_day_adjustment * revenue_percentage_adj
+                gap = actual - float(kpi_day_channel_initial)
+                kpi_day_adjustment = kpi_day_adjustment_by_date.get(calendar_date)
+                if kpi_day_adjustment is not None:
+                    kpi_adjustment = float(kpi_day_adjustment) * float(revenue_percentage_adj)
+                else:
+                    kpi_adjustment = None
             else:
-                kpi_adjustment = None
+                gap = 0
+                # Ngày tương lai: tính theo công thức
+                kpi_day_adjustment = kpi_day_adjustment_by_date.get(calendar_date)
+                if kpi_day_adjustment is not None:
+                    kpi_adjustment = float(kpi_day_adjustment) * float(revenue_percentage_adj)
+                else:
+                    kpi_adjustment = None
             
             results.append({
                 'calendar_date': calendar_date,
