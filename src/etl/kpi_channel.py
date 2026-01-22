@@ -3,60 +3,37 @@ from datetime import datetime
 from typing import List, Dict
 from src.utils.clickhouse_client import get_client
 from src.utils.constants import Constants
+from src.utils.query_helper import RevenueQueryHelper
 
 
 class KPIDayChannelCalculator:
     def __init__(self, constants: Constants):
         self.client = get_client()
         self.constants = constants
+        self.revenue_helper = RevenueQueryHelper()
     
     def calculate_kpi_day_channel(
         self,
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        # Get kpi_day_initial and metadata (revenue_percentage_adj) from respective tables
-        query = f"""
-            SELECT 
-                kd.calendar_date,
-                kd.year,
-                kd.month,
-                kd.day,
-                kd.date_label,
-                md.channel,
-                md.revenue_percentage_adj,
-                kd.kpi_day_initial
-            FROM (SELECT * FROM hskcdp.kpi_day FINAL) AS kd
-            INNER JOIN (SELECT * FROM hskcdp.kpi_day_channel_metadata FINAL) AS md
-                ON kd.calendar_date = md.calendar_date
-                AND kd.year = md.year
-                AND kd.month = md.month
-                AND kd.day = md.day
-                AND kd.date_label = md.date_label
-            WHERE kd.year = {target_year}
-              AND kd.month = {target_month}
-              AND NOT (
-                  (kd.month = 6 AND kd.day BETWEEN 5 AND 7) OR
-                  (kd.month = 9 AND kd.day BETWEEN 8 AND 10) OR
-                  (kd.month = 11 AND kd.day BETWEEN 10 AND 12) OR
-                  (kd.month = 12 AND kd.day BETWEEN 11 AND 13)
-              )
-            ORDER BY kd.calendar_date, md.channel
-        """
-        
-        result = self.client.query(query)
+        # Sử dụng helper method để query từ kpi_day và kpi_day_channel_metadata
+        kpi_day_channel_data = self.revenue_helper.get_kpi_day_with_channel_metadata(
+            target_year=target_year,
+            target_month=target_month
+        )
         
         results = []
         
-        for row in result.result_rows:
-            calendar_date = row[0]
-            year = int(row[1])
-            month = int(row[2])
-            day = int(row[3])
-            date_label = str(row[4])
-            channel = str(row[5])
-            revenue_percentage_adj = Decimal(str(row[6]))
-            kpi_day_initial = Decimal(str(row[7]))
+        for row in kpi_day_channel_data:
+            calendar_date = row['calendar_date']
+            year = row['year']
+            month = row['month']
+            day = row['day']
+            date_label = row['date_label']
+            channel = row['channel']
+            revenue_percentage_adj = row['revenue_percentage_adj']
+            kpi_day_initial = row['kpi_day_initial']
             
             # Calculate kpi_day_channel using revenue_percentage_adj
             kpi_day_channel = kpi_day_initial * revenue_percentage_adj

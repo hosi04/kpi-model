@@ -172,31 +172,14 @@ class RevenueQueryHelper:
     
     def get_historical_revenue_by_date_label(
         self,
-        historical_start_date: date,
-        historical_end_date: date,
-        date_labels: List[str],
-        historical_months: List[int],
-        historical_year: int
+        date_labels: List[str]
     ) -> Dict[str, Dict]:
         """
-        Lấy historical revenue data theo date_label từ transactions
+        Lấy historical revenue data theo date_label từ transactions (3 tháng gần nhất)
         Thay thế query từ revenue_2025_ver2
         Returns: dict {date_label: {'avg_total': float, 'so_ngay_historical': int}}
         """
         date_labels_str = ','.join([f"'{dl}'" for dl in date_labels])
-        
-        # Tính các tháng có thể cross-year
-        month_filters = []
-        first_month = historical_months[0]
-        
-        for month in historical_months:
-            # Xác định năm cho từng tháng
-            # Nếu month < first_month thì đã cross-year (ví dụ: [11, 12, 1] -> tháng 1 ở năm sau)
-            if month < first_month:
-                month_year = historical_year + 1
-            else:
-                month_year = historical_year
-            month_filters.append(f"toDate('{month_year}-{month:02d}-01')")
         
         query = f"""
             SELECT 
@@ -237,7 +220,6 @@ class RevenueQueryHelper:
             }
         
         return historical_data
-
 
     # KPI DAY RELATED QUERIES
     
@@ -384,3 +366,172 @@ class RevenueQueryHelper:
         else:
             return Decimal('0')
 
+    # KPI CHANNEL METADATA RELATED QUERIES
+    
+    def get_total_revenue_by_date_label_last_3_months(
+        self,
+        date_labels: List[str]
+    ) -> Dict[str, float]:
+        date_labels_str = ','.join([f"'{dl}'" for dl in date_labels])
+        
+        query = f"""
+            SELECT 
+                d.date_label, 
+                SUM(t.transaction_total) as total_revenue 
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            INNER JOIN hskcdp.dim_date d
+                ON toDate(t.created_at) = d.calendar_date
+            WHERE toDate(t.created_at) >= today() - INTERVAL 3 MONTH
+              AND d.date_label IN ({date_labels_str})
+              AND t.status NOT IN ('Canceled', 'Cancel')
+              AND (toMonth(t.created_at), toDayOfMonth(t.created_at)) NOT IN (
+                    (6,6), (9,9), (11,11), (12,12)
+              )
+            GROUP BY d.date_label
+        """
+        
+        result = self.client.query(query)
+        total_revenue_by_label = {row[0]: float(row[1]) for row in result.result_rows}
+        return total_revenue_by_label
+    
+    def get_revenue_by_date_label_and_channel_from_platform_last_3_months(
+        self,
+        date_labels: List[str]
+    ) -> Dict[str, Dict[str, float]]:
+        date_labels_str = ','.join([f"'{dl}'" for dl in date_labels])
+        
+        query = f"""
+            SELECT 
+                d.date_label,
+                CASE 
+                    WHEN t.platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
+                    WHEN t.platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
+                    ELSE 'ECOM'
+                END as channel,
+                SUM(t.transaction_total) as revenue
+            FROM hskcdp.object_sql_transactions AS t FINAL
+            INNER JOIN hskcdp.dim_date d
+                ON toDate(t.created_at) = d.calendar_date
+            WHERE toDate(t.created_at) >= today() - INTERVAL 3 MONTH
+              AND d.date_label IN ({date_labels_str})
+              AND t.status NOT IN ('Canceled', 'Cancel')
+              AND (toMonth(t.created_at), toDayOfMonth(t.created_at)) NOT IN (
+                    (6,6), (9,9), (11,11), (12,12)
+              )
+            GROUP BY d.date_label, channel
+        """
+        
+        result = self.client.query(query)
+        
+        channel_revenue = {}
+        for row in result.result_rows:
+            date_label = row[0]
+            channel = row[1]
+            revenue = float(row[2])
+            
+            if date_label not in channel_revenue:
+                channel_revenue[date_label] = {}
+            
+            channel_revenue[date_label][channel] = revenue
+        
+        return channel_revenue
+    
+    def get_dim_dates_for_month_excluding_double_days(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> List[Dict]:
+        """
+        Lấy các ngày trong tháng từ dim_date, loại trừ double days
+        Returns: list of dicts với keys: calendar_date, year, month, day, date_label
+        """
+        query = f"""
+            SELECT 
+                calendar_date,
+                year,
+                month,
+                day,
+                date_label
+            FROM dim_date
+            WHERE year = {target_year}
+              AND month = {target_month}
+              AND NOT (
+                  (month = 6 AND day BETWEEN 5 AND 7) OR
+                  (month = 9 AND day BETWEEN 8 AND 10) OR
+                  (month = 11 AND day BETWEEN 10 AND 12) OR
+                  (month = 12 AND day BETWEEN 11 AND 13)
+              )
+            ORDER BY calendar_date
+        """
+        
+        result = self.client.query(query)
+        
+        dim_dates = []
+        for row in result.result_rows:
+            dim_dates.append({
+                'calendar_date': row[0],
+                'year': int(row[1]),
+                'month': int(row[2]),
+                'day': int(row[3]),
+                'date_label': str(row[4])
+            })
+        
+        return dim_dates
+    
+    # KPI CHANNEL RELATED QUERIES
+    
+    def get_kpi_day_with_channel_metadata(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> List[Dict]:
+        """
+        Lấy kpi_day_initial và revenue_percentage_adj từ kpi_day và kpi_day_channel_metadata
+        để tính toán kpi_day_channel
+        Returns: list of dicts với keys: calendar_date, year, month, day, date_label, 
+                 channel, revenue_percentage_adj, kpi_day_initial
+        """
+        query = f"""
+            SELECT 
+                kd.calendar_date,
+                kd.year,
+                kd.month,
+                kd.day,
+                kd.date_label,
+                md.channel,
+                md.revenue_percentage_adj,
+                kd.kpi_day_initial
+            FROM (SELECT * FROM hskcdp.kpi_day FINAL) AS kd
+            INNER JOIN (SELECT * FROM hskcdp.kpi_day_channel_metadata FINAL) AS md
+                ON kd.calendar_date = md.calendar_date
+                AND kd.year = md.year
+                AND kd.month = md.month
+                AND kd.day = md.day
+                AND kd.date_label = md.date_label
+            WHERE kd.year = {target_year}
+              AND kd.month = {target_month}
+              AND NOT (
+                  (kd.month = 6 AND kd.day BETWEEN 5 AND 7) OR
+                  (kd.month = 9 AND kd.day BETWEEN 8 AND 10) OR
+                  (kd.month = 11 AND kd.day BETWEEN 10 AND 12) OR
+                  (kd.month = 12 AND kd.day BETWEEN 11 AND 13)
+              )
+            ORDER BY kd.calendar_date, md.channel
+        """
+        
+        result = self.client.query(query)
+        
+        kpi_day_channel_data = []
+        for row in result.result_rows:
+            kpi_day_channel_data.append({
+                'calendar_date': row[0],
+                'year': int(row[1]),
+                'month': int(row[2]),
+                'day': int(row[3]),
+                'date_label': str(row[4]),
+                'channel': str(row[5]),
+                'revenue_percentage_adj': Decimal(str(row[6])),
+                'kpi_day_initial': Decimal(str(row[7]))
+            })
+        
+        return kpi_day_channel_data
