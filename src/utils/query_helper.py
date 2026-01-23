@@ -700,3 +700,87 @@ class RevenueQueryHelper:
             })
         
         return kpi_brand_data
+    
+    def get_actual_by_brand_channel_and_date(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> Dict[date, Dict[str, Dict[str, float]]]:
+        """
+        Lấy actual revenue theo brand, channel và date từ object_sql_transaction_detail
+        Platform được map thành channel: ONLINE_HASAKI, OFFLINE_HASAKI, ECOM
+        Returns: dict {calendar_date: {channel: {brand_name: actual_amount}}}
+        """
+        query = f"""
+            SELECT 
+                toDate(created_at) as calendar_date,
+                CASE 
+                    WHEN platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
+                    WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
+                    ELSE 'ECOM'
+                END as channel,
+                brand_name,
+                SUM(COALESCE(total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toYear(created_at) = {target_year}
+              AND toMonth(created_at) = {target_month}
+              AND status NOT IN ('Canceled', 'Cancel')
+            GROUP BY calendar_date, channel, brand_name
+        """
+        
+        result = self.client.query(query)
+        
+        actual_by_date = {}
+        for row in result.result_rows:
+            calendar_date = row[0]
+            channel = row[1]
+            brand_name = str(row[2])
+            actual_amount = float(row[3])
+            
+            if calendar_date not in actual_by_date:
+                actual_by_date[calendar_date] = {}
+            
+            if channel not in actual_by_date[calendar_date]:
+                actual_by_date[calendar_date][channel] = {}
+            
+            actual_by_date[calendar_date][channel][brand_name] = actual_amount
+        
+        return actual_by_date
+    
+    def get_kpi_day_channel_adjustment_by_date_and_channel(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> Dict[date, Dict[str, Decimal]]:
+        """
+        Lấy kpi_adjustment từ kpi_day_channel theo date và channel
+        Returns: dict {calendar_date: {channel: kpi_adjustment}}
+        """
+        query = f"""
+            SELECT 
+                calendar_date,
+                channel,
+                kpi_adjustment
+            FROM hskcdp.kpi_day_channel FINAL
+            WHERE year = {target_year}
+              AND month = {target_month}
+            ORDER BY calendar_date, channel
+        """
+        
+        result = self.client.query(query)
+        
+        kpi_day_channel_adjustment_by_date = {}
+        for row in result.result_rows:
+            calendar_date = row[0]
+            channel = str(row[1])
+            kpi_adjustment = row[2]
+            
+            if calendar_date not in kpi_day_channel_adjustment_by_date:
+                kpi_day_channel_adjustment_by_date[calendar_date] = {}
+            
+            if kpi_adjustment is not None:
+                kpi_day_channel_adjustment_by_date[calendar_date][channel] = Decimal(str(kpi_adjustment))
+            else:
+                kpi_day_channel_adjustment_by_date[calendar_date][channel] = None
+        
+        return kpi_day_channel_adjustment_by_date

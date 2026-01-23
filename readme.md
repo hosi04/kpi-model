@@ -149,6 +149,30 @@ ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `actual` Nullable(Decimal(40, 15))
 ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
 ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `kpi_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
 
+CREATE TABLE hskcdp.kpi_day_channel_brand (
+  `calendar_date` Date,
+  `year` UInt16,
+  `month` UInt8,
+  `day` UInt8,
+  `date_label` String,
+  `channel` String,
+  `brand_name` String,
+  `percentage_of_revenue_by_brand` Decimal(40, 15),
+  `kpi_brand_initial` Decimal(40, 15),
+  `actual` Nullable(Decimal(40, 15)),
+  `gap` Nullable(Decimal(40, 15)),
+  `kpi_brand_adjustment` Nullable(Decimal(40, 15)),
+  `created_at` DateTime DEFAULT now(),
+  `updated_at` DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (year, month, calendar_date, channel, brand_name)
+SETTINGS index_granularity = 8192;
+
+-- DDL để add columns actual, gap, kpi_brand_adjustment nếu bảng đã tồn tại
+ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `actual` Nullable(Decimal(40, 15)) AFTER `kpi_brand_initial`;
+ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
+ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `kpi_brand_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
+
 CREATE TABLE hskcdp.actual_2026_day_staging (
   `year` UInt16,
   `calendar_date` Date,
@@ -178,3 +202,15 @@ SETTINGS index_granularity = 8192;
 
 3. kpi_month.py
 - Tính toán kpi_adjustment cho các tháng.
+
+
+
+**Command**
+python -m src.etl.month_base
+python -m src.etl.kpi_month 
+python -m src.etl.kpi_day_metadata
+python -m src.etl.kpi_day
+python -m src.etl.kpi_channel_metadata
+python -m src.etl.kpi_channel
+python -m src.etl.kpi_brand_metadata
+python -m src.etl.kpi_brand

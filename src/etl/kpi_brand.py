@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict
 from src.utils.clickhouse_client import get_client
 from src.utils.constants import Constants
@@ -23,7 +23,21 @@ class KPIBrandCalculator:
             target_month=target_month
         )
         
+        # Lấy actual revenue theo brand, channel và date
+        actual_by_date = self.revenue_helper.get_actual_by_brand_channel_and_date(
+            target_year=target_year,
+            target_month=target_month
+        )
+        
+        # Lấy kpi_day_channel_adjustment theo date và channel
+        kpi_day_channel_adjustment_by_date = self.revenue_helper.get_kpi_day_channel_adjustment_by_date_and_channel(
+            target_year=target_year,
+            target_month=target_month
+        )
+        
         results = []
+        today = date.today()
+        
         for row in kpi_brand_data:
             calendar_date = row['calendar_date']
             year = row['year']
@@ -38,6 +52,34 @@ class KPIBrandCalculator:
             # Calculate kpi_brand_initial = per_of_rev_by_brand_adj * kpi_brand_initial
             kpi_brand_initial = per_of_rev_by_brand_adj * kpi_brand_initial
             
+            # Lấy actual revenue cho brand này trong channel này trong ngày này
+            actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, 0.0)
+            
+            # Calculate gap và kpi_brand_adjustment:
+            # - Ngày đã qua: gap = actual - kpi_brand_initial, kpi_brand_adjustment = actual
+            # - Ngày hiện tại: gap = actual - kpi_brand_initial, kpi_brand_adjustment = kpi_day_channel_adjustment * percentage_of_revenue_by_brand
+            # - Ngày tương lai: gap = 0, kpi_brand_adjustment = kpi_day_channel_adjustment * percentage_of_revenue_by_brand
+            if calendar_date < today:
+                # Ngày đã qua: gap = actual - kpi_brand_initial, kpi_brand_adjustment = actual
+                gap = actual - float(kpi_brand_initial)
+                kpi_brand_adjustment = actual
+            elif calendar_date == today:
+                # Ngày hiện tại: gap = actual - kpi_brand_initial, kpi_brand_adjustment = kpi_day_channel_adjustment * percentage_of_revenue_by_brand
+                gap = actual - float(kpi_brand_initial)
+                kpi_day_channel_adjustment = kpi_day_channel_adjustment_by_date.get(calendar_date, {}).get(channel)
+                if kpi_day_channel_adjustment is not None:
+                    kpi_brand_adjustment = float(kpi_day_channel_adjustment) * float(per_of_rev_by_brand_adj)
+                else:
+                    kpi_brand_adjustment = None
+            else:
+                # Ngày tương lai: gap = 0, kpi_brand_adjustment = kpi_day_channel_adjustment * percentage_of_revenue_by_brand
+                gap = 0.0
+                kpi_day_channel_adjustment = kpi_day_channel_adjustment_by_date.get(calendar_date, {}).get(channel)
+                if kpi_day_channel_adjustment is not None:
+                    kpi_brand_adjustment = float(kpi_day_channel_adjustment) * float(per_of_rev_by_brand_adj)
+                else:
+                    kpi_brand_adjustment = None
+            
             results.append({
                 'calendar_date': calendar_date,
                 'year': year,
@@ -47,7 +89,10 @@ class KPIBrandCalculator:
                 'channel': channel,
                 'brand_name': brand_name,
                 'percentage_of_revenue_by_brand': float(per_of_rev_by_brand_adj),
-                'kpi_brand_initial': float(kpi_brand_initial)
+                'kpi_brand_initial': float(kpi_brand_initial),
+                'actual': actual,
+                'gap': gap,
+                'kpi_brand_adjustment': kpi_brand_adjustment
             })
         
         return results
@@ -70,6 +115,9 @@ class KPIBrandCalculator:
                 row['brand_name'],
                 row['percentage_of_revenue_by_brand'],
                 row['kpi_brand_initial'],
+                row['actual'],
+                row['gap'],
+                row['kpi_brand_adjustment'],
                 now,
                 now
             ])
@@ -78,6 +126,7 @@ class KPIBrandCalculator:
             'calendar_date', 'year', 'month', 'day', 'date_label',
             'channel', 'brand_name', 'percentage_of_revenue_by_brand', 
             'kpi_brand_initial',
+            'actual', 'gap', 'kpi_brand_adjustment',
             'created_at', 'updated_at'
         ]
         
