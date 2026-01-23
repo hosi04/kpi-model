@@ -126,6 +126,29 @@ ALTER TABLE hskcdp.kpi_day ADD COLUMN `weighted_left` Decimal(40, 15) AFTER `wei
 -- DDL để add column eod sau cột kpi_day_adjustment
 ALTER TABLE hskcdp.kpi_day ADD COLUMN `eod` Nullable(Decimal(40, 15)) AFTER `kpi_day_adjustment`;
 
+CREATE TABLE hskcdp.kpi_day_channel (
+  `calendar_date` Date,
+  `year` UInt16,
+  `month` UInt8,
+  `day` UInt8,
+  `date_label` String,
+  `channel` String,
+  `revenue_percentage` Decimal(40, 15),
+  `kpi_day_channel_initial` Decimal(40, 15),
+  `actual` Nullable(Decimal(40, 15)),
+  `gap` Nullable(Decimal(40, 15)),
+  `kpi_adjustment` Nullable(Decimal(40, 15)),
+  `created_at` DateTime DEFAULT now(),
+  `updated_at` DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (year, month, calendar_date, channel)
+SETTINGS index_granularity = 8192;
+
+-- DDL để add columns actual, gap, kpi_adjustment nếu bảng đã tồn tại
+ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `actual` Nullable(Decimal(40, 15)) AFTER `kpi_day_channel_initial`;
+ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
+ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `kpi_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
+
 CREATE TABLE hskcdp.actual_2026_day_staging (
   `year` UInt16,
   `calendar_date` Date,

@@ -618,18 +618,7 @@ class KPIAdjustmentCalculator:
                 row['month'],
                 row['kpi_initial'],
                 row['actual_2026'],
-                row['gap'],        calculator.recalculate_version_after_marketing_adjustment(
-            version=version,
-            adjusted_month=month,
-            new_kpi_initial=new_kpi_initial
-        )
-    else:
-        # Chạy bình thường
-        print("Calculating KPI adjustment...")
-        result = calculator.save_kpi_adjustment()
-        
-        print(f"Successfully saved {len(result)} records to kpi_month")
-
+                row['gap'],
                 row['eom'],
                 row['kpi_adjustment'],
                 created_at,
