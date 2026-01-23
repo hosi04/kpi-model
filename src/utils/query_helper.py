@@ -610,3 +610,93 @@ class RevenueQueryHelper:
                 kpi_day_adjustment_by_date[calendar_date] = None
         
         return kpi_day_adjustment_by_date
+    
+    # KPI BRAND METADATA RELATED QUERIES
+    
+    def get_revenue_by_brand_last_3_months(self) -> Dict[str, float]:
+        """
+        Lấy revenue theo brand từ object_sql_transaction_detail (3 tháng gần nhất)
+        Thay thế query từ revenue_2025_ver3
+        Returns: dict {brand_name: revenue}
+        """
+        query = f"""
+            SELECT 
+                brand_name,
+                SUM(COALESCE(total_amount, 0)) as revenue
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toDate(created_at) >= today() - INTERVAL 3 MONTH
+              AND status NOT IN ('Canceled', 'Cancel')
+            GROUP BY brand_name
+            ORDER BY brand_name
+        """
+        
+        result = self.client.query(query)
+        
+        revenue_by_brand = {}
+        for row in result.result_rows:
+            brand_name = str(row[0])
+            revenue = float(row[1])
+            revenue_by_brand[brand_name] = revenue
+        
+        return revenue_by_brand
+    
+    # KPI BRAND RELATED QUERIES
+    
+    def get_kpi_brand_with_brand_metadata(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> List[Dict]:
+        """
+        Lấy kpi_day_channel_initial và per_of_rev_by_brand_adj từ kpi_day_channel và kpi_brand_metadata
+        để tính toán kpi_brand
+        Returns: list of dicts với keys: calendar_date, year, month, day, date_label, 
+                 channel, brand_name, per_of_rev_by_brand_adj, kpi_brand_initial
+        """
+        query = f"""
+            SELECT 
+                c.calendar_date,
+                c.year,
+                c.month,
+                c.day,
+                c.date_label,
+                c.channel,
+                b.brand_name,
+                b.per_of_rev_by_brand_adj,
+                c.kpi_day_channel_initial
+            FROM (SELECT * FROM hskcdp.kpi_day_channel FINAL) AS c 
+            CROSS JOIN (
+                SELECT 
+                    brand_name,
+                    per_of_rev_by_brand_adj
+                FROM hskcdp.kpi_brand_metadata FINAL
+                WHERE month = {target_month}
+            ) AS b
+            WHERE c.year = {target_year}
+              AND c.month = {target_month}
+              AND NOT (
+                  (c.month = 6 AND c.day BETWEEN 5 AND 7) OR
+                  (c.month = 9 AND c.day BETWEEN 8 AND 10) OR
+                  (c.month = 11 AND c.day BETWEEN 10 AND 12) OR
+                  (c.month = 12 AND c.day BETWEEN 11 AND 13)
+              )
+            ORDER BY c.calendar_date, c.channel, b.brand_name
+        """
+        
+        result = self.client.query(query)
+        
+        kpi_brand_data = []
+        for row in result.result_rows:
+            kpi_brand_data.append({
+                'calendar_date': row[0],
+                'year': int(row[1]),
+                'month': int(row[2]),
+                'day': int(row[3]),
+                'date_label': str(row[4]),
+                'channel': str(row[5]),
+                'brand_name': str(row[6]),
+                'per_of_rev_by_brand_adj': Decimal(str(row[7])),
+                'kpi_brand_initial': Decimal(str(row[8]))
+            })
+        
+        return kpi_brand_data

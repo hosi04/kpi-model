@@ -3,34 +3,32 @@ from datetime import datetime
 from typing import List, Dict
 from src.utils.clickhouse_client import get_client
 from src.utils.constants import Constants
+from src.utils.query_helper import RevenueQueryHelper
 
 
 class KPIBrandMetadataCalculator:
     def __init__(self, constants: Constants):
         self.client = get_client()
         self.constants = constants
+        self.revenue_helper = RevenueQueryHelper()
     
     def calculate_kpi_brand_metadata(
         self,
         target_month: int
     ) -> List[Dict]:
-        # Calculate revenue percentage by brand from revenue_2025_ver3
-        query = f"""
-            SELECT 
-                brand_name,
-                SUM(revenue) / revenue_1.total AS per_of_rev_by_brand
-            FROM hskcdp.revenue_2025_ver3
-            CROSS JOIN (SELECT SUM(revenue) AS total FROM hskcdp.revenue_2025_ver3) AS revenue_1
-            GROUP BY brand_name, total
-            ORDER BY brand_name
-        """
+        # Sử dụng helper method để query từ object_sql_transaction_detail (3 tháng gần nhất)
+        revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months()
         
-        result = self.client.query(query)
+        # Tính tổng revenue của tất cả brands
+        total_revenue = sum(revenue_by_brand.values())
+        
+        if total_revenue == 0:
+            raise ValueError("Cannot calculate brand metadata: total revenue is 0")
         
         results = []
-        for row in result.result_rows:
-            brand_name = str(row[0])
-            per_of_rev_by_brand = float(row[1])
+        for brand_name, brand_revenue in sorted(revenue_by_brand.items()):
+            # Tính per_of_rev_by_brand = brand_revenue / total_revenue
+            per_of_rev_by_brand = brand_revenue / total_revenue
             
             # Initially, per_of_rev_by_brand_adj equals per_of_rev_by_brand
             # pic is empty string for now
@@ -39,9 +37,9 @@ class KPIBrandMetadataCalculator:
             results.append({
                 'month': target_month,
                 'brand_name': brand_name,
-                'per_of_rev_by_brand': per_of_rev_by_brand,
+                'per_of_rev_by_brand': float(per_of_rev_by_brand),
                 'pic': '',  # Empty string for now
-                'per_of_rev_by_brand_adj': per_of_rev_by_brand_adj
+                'per_of_rev_by_brand_adj': float(per_of_rev_by_brand_adj)
             })
         
         return results
