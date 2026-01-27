@@ -206,9 +206,8 @@ SETTINGS index_granularity = 8192;
 
 
 **Command**
-python -m src.etl.month_base
-python -m src.etl.kpi_month 
 python -m src.etl.kpi_day_metadata
+python -m src.etl.kpi_month 
 python -m src.etl.kpi_day
 python -m src.etl.kpi_channel_metadata
 python -m src.etl.kpi_channel

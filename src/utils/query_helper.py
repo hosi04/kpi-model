@@ -42,15 +42,15 @@ class RevenueQueryHelper:
     
     def get_daily_actual_sum(self, target_year: int, target_month: int) -> Decimal:
         """
-        Tính tổng actual revenue theo ngày từ transactions
+        Tính tổng actual revenue theo ngày từ object_sql_transaction_detail
         """
         query = f"""
             SELECT 
-                SUM(t.transaction_total) as sum_actual
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            WHERE toYear(t.created_at) = {target_year}
-              AND toMonth(t.created_at) = {target_month}
-              AND t.status NOT IN ('Canceled', 'Cancel')
+                SUM(COALESCE(total_amount, 0)) as sum_actual
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toYear(created_at) = {target_year}
+              AND toMonth(created_at) = {target_month}
+              AND status NOT IN ('Canceled', 'Cancel')
         """
         
         result = self.client.query(query)
@@ -61,16 +61,16 @@ class RevenueQueryHelper:
     
     def get_actual_dates(self, target_year: int, target_month: int) -> Set[date]:
         """
-        Lấy danh sách các ngày có actual từ transactions
+        Lấy danh sách các ngày có actual từ object_sql_transaction_detail
         Returns: set of date objects
         """
         query = f"""
             SELECT 
-                DISTINCT toDate(t.created_at) as calendar_date
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            WHERE toYear(t.created_at) = {target_year}
-                AND toMonth(t.created_at) = {target_month}
-                AND t.status NOT IN ('Canceled', 'Cancel')
+                DISTINCT toDate(created_at) as calendar_date
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toYear(created_at) = {target_year}
+                AND toMonth(created_at) = {target_month}
+                AND status NOT IN ('Canceled', 'Cancel')
         """
         
         result = self.client.query(query)
@@ -150,16 +150,16 @@ class RevenueQueryHelper:
     
     def get_monthly_actual(self, target_year: int) -> Dict[int, float]:
         """
-        Lấy actual revenue theo tháng từ transactions
+        Lấy actual revenue theo tháng từ object_sql_transaction_detail
         Returns: dict {month: actual_amount}
         """
         query = f"""
             SELECT 
-                toMonth(t.created_at) as month,
-                SUM(t.transaction_total) as actual_amount
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            WHERE toYear(t.created_at) = {target_year}
-              AND t.status NOT IN ('Canceled', 'Cancel')
+                toMonth(created_at) as month,
+                SUM(COALESCE(total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toYear(created_at) = {target_year}
+              AND status NOT IN ('Canceled', 'Cancel')
             GROUP BY month
             ORDER BY month
         """
@@ -225,7 +225,7 @@ class RevenueQueryHelper:
     
     def get_daily_actual_by_dates(self, calendar_dates: List[date]) -> Dict[date, float]:
         """
-        Lấy actual revenue theo danh sách ngày cụ thể từ transactions
+        Lấy actual revenue theo danh sách ngày cụ thể từ object_sql_transaction_detail
         Thay thế query từ actual_2026_day_staging
         Returns: dict {calendar_date: actual_amount}
         """
@@ -236,11 +236,11 @@ class RevenueQueryHelper:
         
         query = f"""
             SELECT 
-                toDate(t.created_at) as calendar_date,
-                SUM(t.transaction_total) as actual_amount
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            WHERE toDate(t.created_at) IN ({dates_str})
-              AND t.status NOT IN ('Canceled', 'Cancel')
+                toDate(created_at) as calendar_date,
+                SUM(COALESCE(total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toDate(created_at) IN ({dates_str})
+              AND status NOT IN ('Canceled', 'Cancel')
             GROUP BY calendar_date
         """
         
@@ -254,18 +254,18 @@ class RevenueQueryHelper:
         target_month: int
     ) -> Dict[date, float]:
         """
-        Lấy actual revenue theo ngày cho toàn bộ tháng từ transactions
+        Lấy actual revenue theo ngày cho toàn bộ tháng từ object_sql_transaction_detail
         Thay thế query từ actual_2026_day_staging
         Returns: dict {calendar_date: actual_amount}
         """
         query = f"""
             SELECT 
-                toDate(t.created_at) as calendar_date,
-                SUM(t.transaction_total) as actual_amount
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            WHERE toYear(t.created_at) = {target_year}
-              AND toMonth(t.created_at) = {target_month}
-              AND t.status NOT IN ('Canceled', 'Cancel')
+                toDate(created_at) as calendar_date,
+                SUM(COALESCE(total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toYear(created_at) = {target_year}
+              AND toMonth(created_at) = {target_month}
+              AND status NOT IN ('Canceled', 'Cancel')
             GROUP BY calendar_date
             ORDER BY calendar_date
         """
@@ -301,17 +301,17 @@ class RevenueQueryHelper:
     
     def get_hourly_revenue_percentage(self, days_back: int = 30) -> Dict[int, float]:
         """
-        Tính % doanh thu theo giờ (0-23h) trong N ngày gần nhất từ transactions
+        Tính % doanh thu theo giờ (0-23h) trong N ngày gần nhất từ object_sql_transaction_detail
         Returns: dict {hour: percentage} ví dụ {0: 0.05, 1: 0.10, ..., 23: 0.08}
         Tổng tất cả các % = 1.0
         """
         query = f"""
             SELECT 
-                toHour(t.created_at) as hour,
-                SUM(t.transaction_total) as hour_revenue
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            WHERE toDate(t.created_at) >= today() - INTERVAL {days_back} DAY
-              AND t.status NOT IN ('Canceled', 'Cancel')
+                toHour(created_at) as hour,
+                SUM(COALESCE(total_amount, 0)) as hour_revenue
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toDate(created_at) >= today() - INTERVAL {days_back} DAY
+              AND status NOT IN ('Canceled', 'Cancel')
             GROUP BY hour
             ORDER BY hour
         """
@@ -353,11 +353,11 @@ class RevenueQueryHelper:
         """
         query = f"""
             SELECT 
-                SUM(t.transaction_total) as actual_amount
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            WHERE toDate(t.created_at) = '{target_date}'
-              AND toHour(t.created_at) < {until_hour}
-              AND t.status NOT IN ('Canceled', 'Cancel')
+                SUM(COALESCE(total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toDate(created_at) = '{target_date}'
+              AND toHour(created_at) < {until_hour}
+              AND status NOT IN ('Canceled', 'Cancel')
         """
         
         result = self.client.query(query)
@@ -542,24 +542,24 @@ class RevenueQueryHelper:
         target_month: int
     ) -> Dict[date, Dict[str, float]]:
         """
-        Lấy actual revenue theo channel và date từ transactions
+        Lấy actual revenue theo channel và date từ object_sql_transaction_detail
         Platform được map thành channel: ONLINE_HASAKI, OFFLINE_HASAKI, ECOM
-        Loại trừ OFFLINE_SPA
+        Sử dụng transaction_detail để đảm bảo consistency với kpi_day_channel_brand
         Returns: dict {calendar_date: {channel: actual_amount}}
         """
         query = f"""
             SELECT 
-                toDate(t.created_at) as calendar_date,
+                toDate(created_at) as calendar_date,
                 CASE 
-                    WHEN t.platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
-                    WHEN t.platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
+                    WHEN platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
+                    WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
                     ELSE 'ECOM'
                 END as channel,
-                SUM(t.transaction_total) as actual_amount
-            FROM hskcdp.object_sql_transactions AS t FINAL
-            WHERE toYear(t.created_at) = {target_year}
-              AND toMonth(t.created_at) = {target_month}
-              AND t.status NOT IN ('Canceled', 'Cancel')
+                SUM(COALESCE(total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toYear(created_at) = {target_year}
+              AND toMonth(created_at) = {target_month}
+              AND status NOT IN ('Canceled', 'Cancel')
             GROUP BY calendar_date, channel
         """
         
@@ -616,7 +616,6 @@ class RevenueQueryHelper:
     def get_revenue_by_brand_last_3_months(self) -> Dict[str, float]:
         """
         Lấy revenue theo brand từ object_sql_transaction_detail (3 tháng gần nhất)
-        Thay thế query từ revenue_2025_ver3
         Returns: dict {brand_name: revenue}
         """
         query = f"""
@@ -648,13 +647,40 @@ class RevenueQueryHelper:
         target_month: int
     ) -> List[Dict]:
         """
-        Lấy kpi_day_channel_initial và per_of_rev_by_brand_adj từ kpi_day_channel và kpi_brand_metadata
-        để tính toán kpi_brand
+        Lấy kpi_day_channel_initial và per_of_rev_by_brand_adj từ kpi_day_channel
+        Tính per_of_rev_by_brand_adj theo từng channel riêng biệt từ 3 tháng gần nhất
         Returns: list of dicts với keys: calendar_date, year, month, day, date_label, 
-                 channel, brand_name, per_of_rev_by_brand_adj, kpi_brand_initial
+                 channel, brand_name, per_of_rev_by_brand_adj, kpi_day_channel_initial
         """
         query = f"""
-            SELECT 
+            WITH rev AS (
+                SELECT
+                    CASE
+                        WHEN platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
+                        WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
+                        ELSE 'ECOM'
+                    END AS channel,
+                    brand_name,
+                    SUM(COALESCE(total_amount, 0)) AS revenue
+                FROM hskcdp.object_sql_transaction_detail FINAL
+                WHERE toDate(created_at) >= today() - INTERVAL 3 MONTH
+                  AND status NOT IN ('Canceled', 'Cancel')
+                GROUP BY channel, brand_name
+            ),
+            totals AS (
+                SELECT channel, SUM(revenue) AS total_revenue
+                FROM rev
+                GROUP BY channel
+            ),
+            brand_pct AS (
+                SELECT
+                    r.channel,
+                    r.brand_name,
+                    r.revenue / nullIf(t.total_revenue, 0) AS per_of_rev_by_brand_adj
+                FROM rev r
+                INNER JOIN totals t ON r.channel = t.channel
+            )
+            SELECT
                 c.calendar_date,
                 c.year,
                 c.month,
@@ -696,7 +722,7 @@ class RevenueQueryHelper:
                 'channel': str(row[5]),
                 'brand_name': str(row[6]),
                 'per_of_rev_by_brand_adj': Decimal(str(row[7])),
-                'kpi_brand_initial': Decimal(str(row[8]))
+                'kpi_day_channel_initial': Decimal(str(row[8]))
             })
         
         return kpi_brand_data

@@ -54,24 +54,11 @@ class KPIDayChannelCalculator:
             # Lấy actual revenue cho channel này trong ngày này
             actual = actual_by_date.get(calendar_date, {}).get(channel, 0.0)       
             
-            # Calculate kpi_adjustment:
-            # - Với những ngày đã qua: kpi_adjustment = actual
-            # - Với ngày hiện tại và tương lai: kpi_adjustment = kpi_day_adjustment * revenue_percentage_adj
-            if calendar_date < today:
-                # Ngày đã qua: kpi_adjustment = actual
+            if calendar_date <= today:
                 kpi_adjustment = actual
                 gap = actual - float(kpi_day_channel_initial)
-            elif calendar_date == today:
-                # Ngày hiện tại: gap = actual - kpi_day_channel_initial, kpi_adjustment = kpi_day_adjustment * revenue_percentage_adj
-                gap = actual - float(kpi_day_channel_initial)
-                kpi_day_adjustment = kpi_day_adjustment_by_date.get(calendar_date)
-                if kpi_day_adjustment is not None:
-                    kpi_adjustment = float(kpi_day_adjustment) * float(revenue_percentage_adj)
-                else:
-                    kpi_adjustment = None
             else:
                 gap = 0
-                # Ngày tương lai: tính theo công thức
                 kpi_day_adjustment = kpi_day_adjustment_by_date.get(calendar_date)
                 if kpi_day_adjustment is not None:
                     kpi_adjustment = float(kpi_day_adjustment) * float(revenue_percentage_adj)

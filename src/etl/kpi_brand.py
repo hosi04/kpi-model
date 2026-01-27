@@ -47,32 +47,23 @@ class KPIBrandCalculator:
             channel = row['channel']
             brand_name = row['brand_name']
             per_of_rev_by_brand_adj = row['per_of_rev_by_brand_adj']
-            kpi_brand_initial = row['kpi_brand_initial']
+            kpi_day_channel_initial = row['kpi_day_channel_initial']
             
-            # Calculate kpi_brand_initial = per_of_rev_by_brand_adj * kpi_brand_initial
-            kpi_brand_initial = per_of_rev_by_brand_adj * kpi_brand_initial
+            # Calculate kpi_brand_initial = kpi_day_channel_initial * per_of_rev_by_brand_adj
+            kpi_brand_initial = kpi_day_channel_initial * per_of_rev_by_brand_adj
             
             # Lấy actual revenue cho brand này trong channel này trong ngày này
             actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, 0.0)
             
-            # Calculate gap và kpi_brand_adjustment:
-            # - Ngày đã qua: gap = actual - kpi_brand_initial, kpi_brand_adjustment = actual
-            # - Ngày hiện tại: gap = actual - kpi_brand_initial, kpi_brand_adjustment = kpi_day_channel_adjustment * percentage_of_revenue_by_brand
-            # - Ngày tương lai: gap = 0, kpi_brand_adjustment = kpi_day_channel_adjustment * percentage_of_revenue_by_brand
-            if calendar_date < today:
-                # Ngày đã qua: gap = actual - kpi_brand_initial, kpi_brand_adjustment = actual
-                gap = actual - float(kpi_brand_initial)
+            # Calculate kpi_brand_adjustment:
+            # - Với những ngày đã qua và ngày hiện tại: kpi_brand_adjustment = actual
+            # - Với ngày tương lai: kpi_brand_adjustment = kpi_day_channel_adjustment * per_of_rev_by_brand_adj
+            if calendar_date <= today:
+                # Ngày đã qua và ngày hiện tại: kpi_brand_adjustment = actual
                 kpi_brand_adjustment = actual
-            elif calendar_date == today:
-                # Ngày hiện tại: gap = actual - kpi_brand_initial, kpi_brand_adjustment = kpi_day_channel_adjustment * percentage_of_revenue_by_brand
                 gap = actual - float(kpi_brand_initial)
-                kpi_day_channel_adjustment = kpi_day_channel_adjustment_by_date.get(calendar_date, {}).get(channel)
-                if kpi_day_channel_adjustment is not None:
-                    kpi_brand_adjustment = float(kpi_day_channel_adjustment) * float(per_of_rev_by_brand_adj)
-                else:
-                    kpi_brand_adjustment = None
             else:
-                # Ngày tương lai: gap = 0, kpi_brand_adjustment = kpi_day_channel_adjustment * percentage_of_revenue_by_brand
+                # Ngày tương lai: tính theo công thức
                 gap = 0.0
                 kpi_day_channel_adjustment = kpi_day_channel_adjustment_by_date.get(calendar_date, {}).get(channel)
                 if kpi_day_channel_adjustment is not None:

@@ -19,14 +19,22 @@ class KPIBrandMetadataCalculator:
         # Sử dụng helper method để query từ object_sql_transaction_detail (3 tháng gần nhất)
         revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months()
         
-        # Tính tổng revenue của tất cả brands
-        total_revenue = sum(revenue_by_brand.values())
+        # Lọc chỉ lấy brands có revenue > 0
+        positive_revenue_brands = {
+            brand_name: revenue 
+            for brand_name, revenue in revenue_by_brand.items() 
+            if revenue > 0
+        }
+        
+        # Tính tổng revenue của các brands có revenue > 0
+        total_revenue = sum(positive_revenue_brands.values())
         
         if total_revenue == 0:
             raise ValueError("Cannot calculate brand metadata: total revenue is 0")
         
         results = []
-        for brand_name, brand_revenue in sorted(revenue_by_brand.items()):
+        for brand_name, brand_revenue in sorted(positive_revenue_brands.items()):
+            
             # Tính per_of_rev_by_brand = brand_revenue / total_revenue
             per_of_rev_by_brand = brand_revenue / total_revenue
             
