@@ -60,6 +60,9 @@ class KPIDayChannelMetadataCalculator:
         if 'Normal day' not in date_labels:
             date_labels = ['Normal day'] + date_labels
         
+        # Define all channels that should always be included
+        ALL_CHANNELS = ['ONLINE_HASAKI', 'OFFLINE_HASAKI', 'ECOM']
+        
         # Get channel revenue percentage (tự động dùng 3 tháng gần nhất)
         channel_percentage = self.calculate_channel_revenue_percentage(
             date_labels=date_labels
@@ -83,12 +86,12 @@ class KPIDayChannelMetadataCalculator:
             # Get channel percentages for this date_label
             channels_for_label = channel_percentage.get(date_label, {})
             
-            if not channels_for_label:
-                # If no channel data for this date_label, skip
-                continue
-            
-            # Create metadata for each channel
-            for channel, percentage in channels_for_label.items():
+            # Create metadata for ALL channels, even if they don't have revenue data
+            # This ensures all channels have metadata for all days
+            for channel in ALL_CHANNELS:
+                # Get percentage from data if available, otherwise use 0.0
+                percentage = channels_for_label.get(channel, 0.0)
+                
                 # Initially, revenue_percentage_adj equals revenue_percentage
                 # This can be adjusted later based on actual data or other factors
                 revenue_percentage_adj = percentage
