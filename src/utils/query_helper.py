@@ -810,3 +810,54 @@ class RevenueQueryHelper:
                 kpi_day_channel_adjustment_by_date[calendar_date][channel] = None
         
         return kpi_day_channel_adjustment_by_date
+    
+    # KPI SKU RELATED QUERIES
+    
+    def get_actual_by_sku_brand_channel_and_date(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> Dict[date, Dict[str, Dict[str, Dict[str, float]]]]:
+        """
+        Lấy actual revenue theo sku, brand, channel và date từ object_sql_transaction_detail
+        Platform được map thành channel: ONLINE_HASAKI, OFFLINE_HASAKI, ECOM
+        Returns: dict {calendar_date: {channel: {brand_name: {sku: actual_amount}}}}
+        """
+        query = f"""
+            SELECT 
+                toDate(created_at) as calendar_date,
+                CASE 
+                    WHEN platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
+                    WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
+                    ELSE 'ECOM'
+                END as channel,
+                brand_name,
+                CAST(sku AS String) AS sku,
+                SUM(COALESCE(total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_detail FINAL
+            WHERE toYear(created_at) = {target_year}
+              AND toMonth(created_at) = {target_month}
+              AND status NOT IN ('Canceled', 'Cancel')
+            GROUP BY calendar_date, channel, brand_name, sku
+        """
+        
+        result = self.client.query(query)
+        
+        actual_by_date = {}
+        for row in result.result_rows:
+            calendar_date = row[0]
+            channel = row[1]
+            brand_name = str(row[2])
+            sku = str(row[3])
+            actual_amount = float(row[4])
+            
+            if calendar_date not in actual_by_date:
+                actual_by_date[calendar_date] = {}
+            if channel not in actual_by_date[calendar_date]:
+                actual_by_date[calendar_date][channel] = {}
+            if brand_name not in actual_by_date[calendar_date][channel]:
+                actual_by_date[calendar_date][channel][brand_name] = {}
+            
+            actual_by_date[calendar_date][channel][brand_name][sku] = actual_amount
+        
+        return actual_by_date
