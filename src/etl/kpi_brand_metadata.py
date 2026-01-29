@@ -33,11 +33,12 @@ class KPIBrandMetadataCalculator:
             raise ValueError("Cannot calculate brand metadata: total revenue is 0")
         
         results = []
+        sum_check = 0.0     
         for brand_name, brand_revenue in sorted(positive_revenue_brands.items()):
             
             # Tính per_of_rev_by_brand = brand_revenue / total_revenue
             per_of_rev_by_brand = brand_revenue / total_revenue
-            
+            sum_check += per_of_rev_by_brand
             # Initially, per_of_rev_by_brand_adj equals per_of_rev_by_brand
             # pic is empty string for now
             per_of_rev_by_brand_adj = per_of_rev_by_brand
@@ -49,7 +50,7 @@ class KPIBrandMetadataCalculator:
                 'pic': '',  # Empty string for now
                 'per_of_rev_by_brand_adj': float(per_of_rev_by_brand_adj)
             })
-        
+        print("=====================sum_check: ", sum_check)
         return results
     
     def save_kpi_brand_metadata(self, metadata_data: List[Dict]) -> None:

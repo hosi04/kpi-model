@@ -626,6 +626,7 @@ class RevenueQueryHelper:
             WHERE toDate(created_at) >= today() - INTERVAL 3 MONTH
               AND status NOT IN ('Canceled', 'Cancel')
             GROUP BY brand_name
+            HAVING SUM(COALESCE(total_amount, 0)) > 0
             ORDER BY brand_name
         """
         
@@ -667,18 +668,19 @@ class RevenueQueryHelper:
                   AND status NOT IN ('Canceled', 'Cancel')
                 GROUP BY channel, brand_name
             ),
+
             totals AS (
-                SELECT channel, SUM(revenue) AS total_revenue
+                SELECT SUM(revenue) AS total_revenue
                 FROM rev
-                GROUP BY channel
             ),
+
             brand_pct AS (
                 SELECT
                     r.channel,
                     r.brand_name,
                     r.revenue / nullIf(t.total_revenue, 0) AS per_of_rev_by_brand_adj
                 FROM rev r
-                INNER JOIN totals t ON r.channel = t.channel
+                CROSS JOIN totals t
             )
             SELECT
                 c.calendar_date,
@@ -850,7 +852,6 @@ class RevenueQueryHelper:
             brand_name = str(row[2])
             sku = str(row[3])
             actual_amount = float(row[4])
-            
             if calendar_date not in actual_by_date:
                 actual_by_date[calendar_date] = {}
             if channel not in actual_by_date[calendar_date]:

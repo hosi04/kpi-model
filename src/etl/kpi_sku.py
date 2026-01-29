@@ -150,23 +150,18 @@ class KPISKUCalculator:
             
             # Lấy actual revenue cho sku này
             actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, {}).get(sku_name, 0.0)
-
             # Với Tail: kpi_sku_initial = 0 cho tất cả các ngày
             if sku_classification == 'Tail':
                 kpi_sku_initial = Decimal('0')
                 revenue_by_group_sku = Decimal('0')
-            
+
             if calendar_date <= today:
                 kpi_sku_adjustment = actual
                 gap = actual - float(kpi_sku_initial)
             else:
                 gap = 0
-                
-                # Xác định % theo class:
-                # - Nếu brand có cả Hero và Core: Hero = 0.85, Core = 0.15
-                # - Nếu brand chỉ có Hero (không có Core): Hero = 1.00
+
                 if hero_count > 0 and core_count > 0:
-                    # Brand có cả Hero và Core
                     if sku_classification == 'Hero':
                         class_pct = Decimal('0.85')
                     elif sku_classification == 'Core':
@@ -174,13 +169,11 @@ class KPISKUCalculator:
                     else:  # Tail
                         class_pct = Decimal('0')
                 elif hero_count > 0 and core_count == 0:
-                    # Brand chỉ có Hero
                     if sku_classification == 'Hero':
                         class_pct = Decimal('1.00')
                     else:  # Core hoặc Tail
                         class_pct = Decimal('0')
                 else:
-                    # Trường hợp khác (chỉ có Core hoặc không có gì)
                     if sku_classification == 'Hero':
                         class_pct = Decimal('0.85')
                     elif sku_classification == 'Core':
