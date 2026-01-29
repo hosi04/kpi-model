@@ -354,33 +354,26 @@ class KPIAdjustmentCalculator:
         kpi_initial_version1_adjusted = self.get_kpi_initial_from_version(
             baseline_version, adjusted_month, target_year
         )
-        print(f"  - kpi_initial version 1 tháng {adjusted_month}: {kpi_initial_version1_adjusted}")
         
         # 2. Tính chênh lệch của tháng được chỉnh sửa
         adjusted_month_diff = Decimal(str(new_kpi_initial)) - Decimal(str(kpi_initial_version1_adjusted))
-        print(f"  - Chênh lệch tháng {adjusted_month} = {new_kpi_initial} - {kpi_initial_version1_adjusted} = {adjusted_month_diff}")
         
         # 3. Lấy Sum(gap) của version 1
         sum_gap_version1 = self.get_sum_gap_from_version(baseline_version, target_year)
-        print(f"  - Sum(gap) version 1: {sum_gap_version1}")
         
         # 4. Tính tổng gap mới sau khi điều chỉnh
         total_adjusted_gap = sum_gap_version1 + adjusted_month_diff
-        print(f"  - Tổng gap mới = Sum(gap) + chênh lệch = {sum_gap_version1} + {adjusted_month_diff} = {total_adjusted_gap}")
         
         # 5. Tính số tháng còn lại (chỉ các tháng SAU tháng được chỉnh sửa)
         # Ví dụ: chỉnh sửa tháng 2 → chỉ tính lại tháng 3-12
         # Các tháng TRƯỚC tháng được chỉnh sửa (1 đến adjusted_month-1) giữ nguyên
         remaining_months = [m for m in range(adjusted_month + 1, 13)]
-        print(f"  - Số tháng còn lại cần tính lại (sau tháng {adjusted_month}): {remaining_months} ({len(remaining_months)} tháng)")
-        print(f"  - Các tháng trước tháng {adjusted_month} sẽ giữ nguyên giá trị cũ")
-        
+
         # 6. Tính gap phân bổ cho mỗi tháng còn lại
         if len(remaining_months) > 0:
             gap_per_remaining_month = total_adjusted_gap / Decimal(str(len(remaining_months)))
         else:
             gap_per_remaining_month = Decimal('0')
-        print(f"  - Gap phân bổ cho mỗi tháng còn lại = {total_adjusted_gap} / {len(remaining_months)} = {gap_per_remaining_month}")
         
         # 7. Tính lại kpi_initial cho các tháng còn lại và update vào database
         now = datetime.now()
@@ -674,7 +667,6 @@ if __name__ == "__main__":
             new_kpi_initial=new_kpi_initial
         )
     else:
-        # Chạy bình thường
         print("Calculating KPI adjustment...")
         result = calculator.save_kpi_adjustment()
         

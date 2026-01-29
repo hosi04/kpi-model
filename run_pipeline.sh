@@ -16,6 +16,7 @@ steps=(
     "src.etl.kpi_channel:Tính toán KPI Channel"
     "src.etl.kpi_brand_metadata:Tính toán KPI Brand Metadata"
     "src.etl.kpi_brand:Tính toán KPI Brand"
+    "src.etl.kpi_sku:Tính toán KPI SKU"
 )
 
 failed_steps=()
