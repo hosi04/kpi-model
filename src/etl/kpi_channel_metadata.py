@@ -18,10 +18,6 @@ class KPIDayChannelMetadataCalculator:
         if date_labels is None:
             date_labels = self.constants.DATE_LABELS
         
-        if 'Normal day' not in date_labels:
-            date_labels = ['Normal day'] + date_labels
-        
-        # Sử dụng helper methods để query từ transactions (3 tháng gần nhất)
         total_revenue_by_label = self.revenue_helper.get_total_revenue_by_date_label_last_3_months(
             date_labels
         )
@@ -57,18 +53,10 @@ class KPIDayChannelMetadataCalculator:
         if date_labels is None:
             date_labels = self.constants.DATE_LABELS
         
-        if 'Normal day' not in date_labels:
-            date_labels = ['Normal day'] + date_labels
-        
-        # Define all channels that should always be included
-        ALL_CHANNELS = ['ONLINE_HASAKI', 'OFFLINE_HASAKI', 'ECOM']
-        
-        # Get channel revenue percentage (tự động dùng 3 tháng gần nhất)
         channel_percentage = self.calculate_channel_revenue_percentage(
             date_labels=date_labels
         )
         
-        # Get all dates for target month from dim_date (sử dụng helper)
         dim_dates = self.revenue_helper.get_dim_dates_for_month_excluding_double_days(
             target_year=target_year,
             target_month=target_month
@@ -83,17 +71,11 @@ class KPIDayChannelMetadataCalculator:
             day = dim_date['day']
             date_label = dim_date['date_label']
             
-            # Get channel percentages for this date_label
             channels_for_label = channel_percentage.get(date_label, {})
             
-            # Create metadata for ALL channels, even if they don't have revenue data
-            # This ensures all channels have metadata for all days
-            for channel in ALL_CHANNELS:
-                # Get percentage from data if available, otherwise use 0.0
+            for channel in self.constants.ALL_CHANNELS:
                 percentage = channels_for_label.get(channel, 0.0)
                 
-                # Initially, revenue_percentage_adj equals revenue_percentage
-                # This can be adjusted later based on actual data or other factors
                 revenue_percentage_adj = percentage
                 
                 results.append({
