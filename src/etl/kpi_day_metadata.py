@@ -21,11 +21,6 @@ class KPIDayMetadataCalculator:
         if date_labels is None:
             date_labels = self.constants.DATE_LABELS
         
-        # Add Normal day to the list if it's not already there
-        if 'Normal day' not in date_labels:
-            date_labels = ['Normal day'] + date_labels
-        
-        # Sử dụng helper method để query từ transactions (3 tháng gần nhất)
         historical_data = self.revenue_helper.get_historical_revenue_by_date_label(
             date_labels
         )
@@ -39,7 +34,7 @@ class KPIDayMetadataCalculator:
         for date_label in date_labels:
             if date_label in historical_data:
                 avg_total = historical_data[date_label]['avg_total']
-                uplift = avg_total / baseline if baseline > 0 else 0
+                uplift = avg_total / baseline
             else:
                 avg_total = 0
                 uplift = 0
@@ -59,9 +54,6 @@ class KPIDayMetadataCalculator:
     ) -> Dict[str, Dict]:
         if date_labels is None:
             date_labels = self.constants.DATE_LABELS
-        
-        if 'Normal day' not in date_labels:
-            date_labels = ['Normal day'] + date_labels
         
         query = f"""
             SELECT 
@@ -96,15 +88,11 @@ class KPIDayMetadataCalculator:
         self,
         target_year: int,
         target_month: int,
-        version: str,
         date_labels: List[str] = None
     ) -> List[Dict]:
         if date_labels is None:
             date_labels = self.constants.DATE_LABELS
             
-        if 'Normal day' not in date_labels:
-            date_labels = ['Normal day'] + date_labels
-        
         uplifts = self.calculate_uplift_from_historical(
             target_year,
             target_month,
@@ -117,8 +105,7 @@ class KPIDayMetadataCalculator:
             date_labels
         )
         
-        # Tính historical_start_date và historical_end_date để lưu vào metadata
-        # Dùng 3 tháng gần nhất (today() - INTERVAL 3 MONTH)
+        # Calculate historical_start_date and historical_end_date only save into metadata table
         today = date.today()
         historical_end_date = today
         historical_start_date = today - timedelta(days=90)
@@ -193,16 +180,11 @@ class KPIDayMetadataCalculator:
         self,
         target_year: int,
         target_month: int,
-        version: Optional[str] = None,
         date_labels: List[str] = None
     ) -> List[Dict]:
-        if version is None:
-            version = f"Thang {target_month}"
-        
         metadata = self.calculate_metadata(
             target_year=target_year,
             target_month=target_month,
-            version=version,
             date_labels=date_labels
         )
         

@@ -112,25 +112,7 @@ class RevenueQueryHelper:
         result = self.client.query(query)
         actual_days_by_label = {row[0]: int(row[1]) for row in result.result_rows}
         return actual_days_by_label
-    
-    def check_month_ended(self, target_year: int, target_month: int) -> bool:
-        """
-        Check xem tháng đã kết thúc chưa
-        Logic: Nếu ngày hiện tại đã qua ngày cuối cùng của tháng thì tháng đã kết thúc
-        """
-        # Tính ngày cuối cùng của tháng
-        if target_month == 12:
-            last_day = date(target_year, 12, 31)
-        else:
-            next_month = date(target_year, target_month + 1, 1)
-            last_day = next_month - timedelta(days=1)
-        
-        # Check xem ngày hiện tại đã qua ngày cuối cùng chưa
-        today = date.today()
-        if today > last_day:
-            return True
-        return False
-    
+
     def get_max_month_with_actual(self, target_year: int) -> int:
         """
         Tìm tháng có actual mới nhất từ transactions

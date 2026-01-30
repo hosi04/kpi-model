@@ -21,6 +21,7 @@ class Constants:
                 'Pay Day -1'
             ]   
 
+    ALL_CHANNELS = ['ONLINE_HASAKI', 'OFFLINE_HASAKI', 'ECOM']
 # Create a default instance for convenience
 constants = Constants()
 

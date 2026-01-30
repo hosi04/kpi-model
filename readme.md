@@ -213,3 +213,7 @@ python -m src.etl.kpi_channel_metadata
 python -m src.etl.kpi_channel
 python -m src.etl.kpi_brand_metadata
 python -m src.etl.kpi_brand
+
+
+**Những LOGIC cần phải review lại:**
+- Logic chốt số vào ngày 26 trong kpi_month.py

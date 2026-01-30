@@ -110,29 +110,6 @@ class KPIAdjustmentCalculator:
         
         return eom
     
-    def is_month_ended(self, target_year: int, target_month: int) -> bool:
-        return self.revenue_helper.check_month_ended(target_year, target_month)
-    
-    def get_current_version_number(self, target_year: int, target_month: int) -> int:
-        today = date.today()
-        
-        # Nếu đang ở tháng khác với target_month → đã qua tháng mới
-        if today.year != target_year or today.month != target_month:
-            # Đã qua tháng mới → dùng version của tháng tiếp theo
-            if target_month == 12:
-                return 1  # Năm sau
-            else:
-                return target_month + 1
-        else:
-            # Vẫn trong tháng hiện tại → luôn dùng version của tháng hiện tại
-            return target_month
-    
-    def get_baseline_version_number(self, current_version_number: int) -> int:
-        if current_version_number == 1:
-            return 1
-        else:
-            return current_version_number - 1
-    
     def create_new_version_from_day_26(self, target_year: int, target_month: int) -> None:
         today = date.today()
 
@@ -630,9 +607,9 @@ class KPIAdjustmentCalculator:
         # Kiểm tra: nếu là ngày 26 của tháng hiện tại → chốt số và tạo version mới
         today = date.today()
         if today.day == 26 and today.month == target_month and today.year == self.constants.KPI_YEAR_2026:
-            print(f"\n=== CHỐT SỐ VÀO NGÀY 26 ===")
+            print(f"Create new version from day 26")
             self.create_new_version_from_day_26(self.constants.KPI_YEAR_2026, target_month)
-            print(f"=== HOÀN TẤT CHỐT SỐ ===\n")
+            print(f"Successfully created new version")
         
         return results
 
