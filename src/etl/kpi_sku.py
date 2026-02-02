@@ -45,6 +45,15 @@ class KPISKUCalculator:
                 FROM brand_data
                 GROUP BY calendar_date, brand_name
             ),
+            new_skus_in_month AS (
+                SELECT 
+                    toString(sku) AS sku,
+                    MIN(td.created_at) as begin_date
+                FROM hskcdp.object_sql_transaction_detail td FINAL 
+                GROUP BY toString(sku)
+                HAVING toYear(begin_date) = {target_year}
+                   AND toMonth(begin_date) = {target_month}
+            ),
             cross_join AS (
                 SELECT
                     b.calendar_date,
@@ -64,6 +73,7 @@ class KPISKUCalculator:
                         sku_classification, 
                         revenue_share_in_class 
                     FROM hskcdp.dim_sku 
+                    WHERE sku NOT IN (SELECT sku FROM new_skus_in_month)
                 ) AS s 
                 ON s.brand_name = b.brand_name
             ),
