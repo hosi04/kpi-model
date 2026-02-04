@@ -628,10 +628,8 @@ if __name__ == "__main__":
     calculator = KPIDayCalculator(constants)
     
     target_year = 2026
-    target_month = 1
+    target_month = 2
     
-    # Tính kpi_day_initial: luôn tính lại để đảm bảo dùng kpi_month.kpi_initial mới nhất
-    # Query đã dùng FINAL nên sẽ tự động lấy version mới nhất của kpi_month
     print(f"Calculating kpi_day_initial for month {target_month}/{target_year}...")
     kpi_day_initial_data = calculator.calculate_and_save_kpi_day_initial(
         target_year=target_year,
@@ -639,23 +637,9 @@ if __name__ == "__main__":
     )
     print(f"Successfully saved {len(kpi_day_initial_data)} kpi_day_initial records")
     
-    # Kiểm tra xem có actual không, nếu có thì tính kpi_day_adjustment
-    check_actual_query = f"""
-        SELECT COUNT(*) as cnt
-        FROM hskcdp.actual_2026_day_staging FINAL
-        WHERE year = {target_year}
-          AND month = {target_month}
-          AND processed = true
-    """
-    actual_check_result = calculator.client.query(check_actual_query)
-    has_actual = actual_check_result.result_rows[0][0] > 0 if actual_check_result.result_rows else False
-    
-    if has_actual:
-        print(f"Calculating kpi_day_adjustment for month {target_month}/{target_year}...")
-        kpi_day_adjustment_data = calculator.calculate_and_save_kpi_day_adjustment(
-            target_year=target_year,
-            target_month=target_month
-        )
-        print(f"Successfully saved {len(kpi_day_adjustment_data)} kpi_day_adjustment records")
-    else:
-        print(f"No processed actuals found for month {target_month}/{target_year}. Skipping kpi_day_adjustment calculation.")
+    print(f"Calculating kpi_day_adjustment for month {target_month}/{target_year}...")
+    kpi_day_adjustment_data = calculator.calculate_and_save_kpi_day_adjustment(
+        target_year=target_year,
+        target_month=target_month
+    )
+    print(f"Successfully saved {len(kpi_day_adjustment_data)} kpi_day_adjustment records")

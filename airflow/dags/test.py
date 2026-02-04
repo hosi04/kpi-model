@@ -11,7 +11,6 @@ default_args = {"owner": "cdp-kpi-models", "retries": 1}
 
 PYTHON_CMD = "PYTHONPATH=/opt/airflow python"
 
-# kpi_day_metadata
 with DAG(
     dag_id="kpi_day_metadata",
     start_date=datetime(2026, 1, 1),
@@ -29,7 +28,7 @@ with DAG(
 with DAG(
     dag_id="kpi_month",
     start_date=datetime(2026, 1, 1),
-    schedule="0 0 * * *",
+    schedule="30 0 * * *",
     default_args=default_args,
     catchup=False,
     tags=["cdp-kpi-models","daily", "kpi_month"],
@@ -39,47 +38,45 @@ with DAG(
         bash_command=f"{PYTHON_CMD} -m src.etl.kpi_month",
     )
 
-    trigger_kpi_day = TriggerDagRunOperator(
-        task_id="trigger_kpi_day",
-        trigger_dag_id="kpi_day",
-        wait_for_completion=False,
-        reset_dag_run=True,
-    )
-
-    kpi_month_task >> trigger_kpi_day
-
-# kpi_day
+# Or pass via conf when triggering: {"kpi_month_target_month": "1"}
 with DAG(
-    dag_id="kpi_day",
+    dag_id="kpi_month_recalculate_version",
     start_date=datetime(2026, 1, 1),
-    schedule="0 * * * *",
+    schedule=None,
     default_args=default_args,
     catchup=False,
-    tags=["cdp-kpi-models","hourly", "kpi_day"],
+    tags=["cdp-kpi-models", "manual", "kpi_month", "recalculate"],
 ) as dag:
-    kpi_day_task = BashOperator(
-        task_id="kpi_day_task",
-        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_day",
+    kpi_month_recalculate_task = BashOperator(
+        task_id="kpi_month_recalculate_task",
+        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_month --target-month {{{{ var.value.get('kpi_month_target_month', '1') }}}}",
     )
 
-# kpi_month_marketing_adjustment (Manual DAG - chạy khi marketing chỉnh sửa số)
+# Or pass via conf when triggering: {"kpi_month_source_month": "1"}
 with DAG(
-    dag_id="kpi_month_marketing_adjustment",
+    dag_id="kpi_month_create_version_manually",
     start_date=datetime(2026, 1, 1),
-    schedule=None,  # Manual trigger only
+    schedule=None,
     default_args=default_args,
     catchup=False,
-    tags=["cdp-kpi-models", "manual", "marketing-adjustment"],
-    params={
-        "version": "Thang 2",  # Version cần tính lại
-        "month": 2,  # Tháng được marketing chỉnh sửa
-        "new_kpi_initial": 10000000000.0  # Giá trị kpi_initial mới
-    }
+    tags=["cdp-kpi-models", "manual", "kpi_month", "create_version"],
 ) as dag:
-    recalculate_task = BashOperator(
-        task_id="recalculate_version_after_marketing_adjustment",
-        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_month "
-                     "--recalculate-version '{{ params.version }}' "
-                     "--month {{ params.month }} "
-                     "--new-kpi-initial {{ params.new_kpi_initial }}",
+    kpi_month_create_version_task = BashOperator(
+        task_id="kpi_month_create_version_task",
+        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_month --create-version-manually --source-month {{{{ var.value.get('kpi_month_source_month', '1') }}}} --force",
+    )
+
+
+# Or pass via conf when triggering: {"kpi_day_metadata_target_month": "2"}
+with DAG(
+    dag_id="kpi_day_metadata_manual",
+    start_date=datetime(2026, 1, 1),
+    schedule=None,
+    default_args=default_args,
+    catchup=False,
+    tags=["cdp-kpi-models", "manual", "kpi_day_metadata"],
+) as dag:
+    kpi_day_metadata_manual_task = BashOperator(
+        task_id="kpi_day_metadata_manual_task",
+        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_day_metadata --target-month {{{{ dag_run.conf.get('kpi_day_metadata_target_month', '') }}}}",
     )
