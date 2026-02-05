@@ -316,6 +316,35 @@ class KPIDayCalculator:
         print(f"DEBUG: Số ngày chưa có actual và chưa qua: {len(days_in_weighted_left)}")
         print(f"DEBUG: Danh sách ngày trong Weighted Left: {[str(d[0]) for d in days_in_weighted_left]}")
         
+        # Lấy avg_total của "Normal day" từ kpi_day_metadata để tính EOD cho ngày tương lai
+        avg_rev_normal_day = None
+        normal_day_metadata_query = f"""
+            SELECT 
+                avg_total
+            FROM (
+                SELECT 
+                    year,
+                    month,
+                    date_label,
+                    avg_total,
+                    row_number() OVER (
+                        PARTITION BY year, month, date_label
+                        ORDER BY updated_at DESC
+                    ) AS rn
+                FROM hskcdp.kpi_day_metadata
+                WHERE year = {target_year}
+                  AND month = {target_month}
+                  AND date_label = 'Normal day'
+            )
+            WHERE rn = 1
+            LIMIT 1
+        """
+        normal_day_result = self.client.query(normal_day_metadata_query)
+        if normal_day_result.result_rows and normal_day_result.result_rows[0][0] is not None:
+            avg_rev_normal_day = Decimal(str(normal_day_result.result_rows[0][0]))
+        else:
+            print(f"\n=== DEBUG: Không tìm thấy avg_rev_normal_day trong kpi_day_metadata ===")
+        
         # Tính EOD cho ngày hiện tại (nếu ngày hiện tại nằm trong tháng đang tính)
         eod_value = None
         current_datetime = datetime.now()
@@ -418,9 +447,9 @@ class KPIDayCalculator:
                     gap = None
             
             # Set eod:
-            # - Ngày hiện tại: tính EOD theo công thức
+            # - Ngày hiện tại: tính EOD theo công thức (actual / sum(% của các giờ đã qua))
             # - Ngày đã qua: eod = actual (luôn có giá trị, nếu không có actual thì = 0)
-            # - Ngày chưa qua: eod = None
+            # - Ngày chưa qua: eod = avg_rev_normal_day * uplift
             if calendar_date == today:
                 # Ngày hiện tại: dùng EOD đã tính
                 eod = eod_value
@@ -431,8 +460,12 @@ class KPIDayCalculator:
                 else:
                     eod = 0.0  # Nếu không có actual thì eod = 0
             else:
-                # Ngày chưa qua: eod = None
-                eod = None
+                # Ngày chưa qua: eod = avg_rev_normal_day * uplift
+                if avg_rev_normal_day is not None:
+                    uplift = day_data['uplift']
+                    eod = float(avg_rev_normal_day * uplift)
+                else:
+                    eod = None  # Nếu không có avg_rev_normal_day thì eod = None
             
             results.append({
                 'calendar_date': calendar_date,
@@ -624,11 +657,41 @@ class KPIDayCalculator:
 
 
 if __name__ == "__main__":
+    import sys
+    
     constants = Constants()
     calculator = KPIDayCalculator(constants)
     
-    target_year = 2026
-    target_month = 2
+    target_month = None
+    target_year = constants.KPI_YEAR_2026
+    
+    if len(sys.argv) > 1:
+        i = 1
+        while i < len(sys.argv):
+            if sys.argv[i] == "--target-month":
+                if i + 1 < len(sys.argv):
+                    try:
+                        target_month = int(sys.argv[i + 1])
+                        i += 2
+                    except ValueError:
+                        print(f"Error: Invalid value for --target-month: {sys.argv[i + 1]}")
+                        sys.exit(1)
+                else:
+                    print("Error: --target-month requires a value")
+                    sys.exit(1)
+            else:
+                i += 1
+    
+    if target_month is None:
+        today = date.today()
+        if today.year == constants.KPI_YEAR_2026:
+            target_month = today.month
+        else:
+            target_month = 1
+    
+    if target_month < 1 or target_month > 12:
+        print(f"Error: target_month must be between 1 and 12, received: {target_month}")
+        sys.exit(1)
     
     print(f"Calculating kpi_day_initial for month {target_month}/{target_year}...")
     kpi_day_initial_data = calculator.calculate_and_save_kpi_day_initial(

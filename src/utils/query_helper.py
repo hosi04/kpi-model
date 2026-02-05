@@ -20,7 +20,7 @@ class RevenueQueryHelper:
             FROM (
                 SELECT
                     toDate(t.created_at) as calendar_date,
-                    SUM(t.transaction_total) AS daily_revenue
+                    SUM(t.total_amount) AS daily_revenue
                 FROM hskcdp.object_sql_transaction_details AS t FINAL
                 INNER JOIN hskcdp.dim_date d
                     ON toDate(t.created_at) = d.calendar_date
