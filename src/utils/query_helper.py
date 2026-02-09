@@ -486,10 +486,10 @@ class RevenueQueryHelper:
         target_month: int
     ) -> List[Dict]:
         """
-        Lấy kpi_day_initial và revenue_percentage_adj từ kpi_day và kpi_day_channel_metadata
+        Lấy kpi_day_initial và rev_pct_adjustment từ kpi_day và kpi_channel_metadata
         để tính toán kpi_day_channel
         Returns: list of dicts với keys: calendar_date, year, month, day, date_label, 
-                 channel, revenue_percentage_adj, kpi_day_initial
+                 channel, rev_pct_adjustment, kpi_day_initial
         """
         query = f"""
             SELECT 
@@ -499,10 +499,10 @@ class RevenueQueryHelper:
                 kd.day,
                 kd.date_label,
                 md.channel,
-                md.revenue_percentage_adj,
+                md.rev_pct_adjustment,
                 kd.kpi_day_initial
             FROM (SELECT * FROM hskcdp.kpi_day FINAL) AS kd
-            INNER JOIN (SELECT * FROM hskcdp.kpi_day_channel_metadata FINAL) AS md
+            INNER JOIN (SELECT * FROM hskcdp.kpi_channel_metadata FINAL) AS md
                 ON kd.calendar_date = md.calendar_date
                 AND kd.year = md.year
                 AND kd.month = md.month
@@ -530,7 +530,7 @@ class RevenueQueryHelper:
                 'day': int(row[3]),
                 'date_label': str(row[4]),
                 'channel': str(row[5]),
-                'revenue_percentage_adj': Decimal(str(row[6])),
+                'rev_pct_adjustment': Decimal(str(row[6])),
                 'kpi_day_initial': Decimal(str(row[7]))
             })
         
@@ -647,10 +647,10 @@ class RevenueQueryHelper:
         target_month: int
     ) -> List[Dict]:
         """
-        Lấy kpi_day_channel_initial và per_of_rev_by_brand_adj từ kpi_day_channel
+        Lấy kpi_channel_initial và per_of_rev_by_brand_adj từ kpi_channel
         Tính per_of_rev_by_brand_adj theo từng channel riêng biệt từ 3 tháng gần nhất
         Returns: list of dicts với keys: calendar_date, year, month, day, date_label, 
-                 channel, brand_name, per_of_rev_by_brand_adj, kpi_day_channel_initial
+                 channel, brand_name, per_of_rev_by_brand_adj, kpi_channel_initial
         """
         query = f"""
             WITH rev AS (
@@ -689,8 +689,8 @@ class RevenueQueryHelper:
                 c.channel,
                 b.brand_name,
                 b.per_of_rev_by_brand_adj,
-                c.kpi_day_channel_initial
-            FROM (SELECT * FROM hskcdp.kpi_day_channel FINAL) AS c 
+                c.kpi_channel_initial
+            FROM (SELECT * FROM hskcdp.kpi_channel FINAL) AS c 
             CROSS JOIN (
                 SELECT 
                     brand_name,
@@ -722,7 +722,7 @@ class RevenueQueryHelper:
                 'channel': str(row[5]),
                 'brand_name': str(row[6]),
                 'per_of_rev_by_brand_adj': Decimal(str(row[7])),
-                'kpi_day_channel_initial': Decimal(str(row[8]))
+                'kpi_channel_initial': Decimal(str(row[8]))
             })
         
         return kpi_brand_data
@@ -779,15 +779,15 @@ class RevenueQueryHelper:
         target_month: int
     ) -> Dict[date, Dict[str, Decimal]]:
         """
-        Lấy kpi_adjustment từ kpi_day_channel theo date và channel
-        Returns: dict {calendar_date: {channel: kpi_adjustment}}
+        Lấy kpi_channel_adjustment từ kpi_channel theo date và channel
+        Returns: dict {calendar_date: {channel: kpi_channel_adjustment}}
         """
         query = f"""
             SELECT 
                 calendar_date,
                 channel,
-                kpi_adjustment
-            FROM hskcdp.kpi_day_channel FINAL
+                kpi_channel_adjustment
+            FROM hskcdp.kpi_channel FINAL
             WHERE year = {target_year}
               AND month = {target_month}
             ORDER BY calendar_date, channel
@@ -799,13 +799,13 @@ class RevenueQueryHelper:
         for row in result.result_rows:
             calendar_date = row[0]
             channel = str(row[1])
-            kpi_adjustment = row[2]
+            kpi_channel_adjustment = row[2]
             
             if calendar_date not in kpi_day_channel_adjustment_by_date:
                 kpi_day_channel_adjustment_by_date[calendar_date] = {}
             
-            if kpi_adjustment is not None:
-                kpi_day_channel_adjustment_by_date[calendar_date][channel] = Decimal(str(kpi_adjustment))
+            if kpi_channel_adjustment is not None:
+                kpi_day_channel_adjustment_by_date[calendar_date][channel] = Decimal(str(kpi_channel_adjustment))
             else:
                 kpi_day_channel_adjustment_by_date[calendar_date][channel] = None
         

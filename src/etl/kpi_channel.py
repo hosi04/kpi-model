@@ -17,7 +17,7 @@ class KPIDayChannelCalculator:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        # Sử dụng helper method để query từ kpi_day và kpi_day_channel_metadata
+        # Sử dụng helper method để query từ kpi_day và kpi_channel_metadata
         kpi_day_channel_data = self.revenue_helper.get_kpi_day_with_channel_metadata(
             target_year=target_year,
             target_month=target_month
@@ -45,11 +45,11 @@ class KPIDayChannelCalculator:
             day = row['day']
             date_label = row['date_label']
             channel = row['channel']
-            revenue_percentage_adj = row['revenue_percentage_adj']
+            rev_pct_adjustment = row['rev_pct_adjustment']
             kpi_day_initial = row['kpi_day_initial']
             
-            # Calculate kpi_day_channel_initial using revenue_percentage_adj
-            kpi_day_channel_initial = kpi_day_initial * revenue_percentage_adj
+            # Calculate kpi_day_channel_initial using rev_pct_adjustment
+            kpi_day_channel_initial = kpi_day_initial * rev_pct_adjustment
             
             # Lấy actual revenue cho channel này trong ngày này
             actual = actual_by_date.get(calendar_date, {}).get(channel, 0.0)       
@@ -61,7 +61,7 @@ class KPIDayChannelCalculator:
                 gap = 0
                 kpi_day_adjustment = kpi_day_adjustment_by_date.get(calendar_date)
                 if kpi_day_adjustment is not None:
-                    kpi_adjustment = float(kpi_day_adjustment) * float(revenue_percentage_adj)
+                    kpi_adjustment = float(kpi_day_adjustment) * float(rev_pct_adjustment)
                 else:
                     kpi_adjustment = None
             
@@ -72,11 +72,11 @@ class KPIDayChannelCalculator:
                 'day': day,
                 'date_label': date_label,
                 'channel': channel,
-                'revenue_percentage': float(revenue_percentage_adj),
-                'kpi_day_channel_initial': float(kpi_day_channel_initial),
+                'rev_pct': float(rev_pct_adjustment),
+                'kpi_channel_initial': float(kpi_day_channel_initial),
                 'actual': actual,
                 'gap': gap,
-                'kpi_adjustment': kpi_adjustment
+                'kpi_channel_adjustment': kpi_adjustment
             })
         
         return results
@@ -96,23 +96,23 @@ class KPIDayChannelCalculator:
                 row['day'],
                 row['date_label'],
                 row['channel'],
-                row['revenue_percentage'],
-                row['kpi_day_channel_initial'],
+                row['rev_pct'],
+                row['kpi_channel_initial'],
                 row['actual'],
                 row['gap'],
-                row['kpi_adjustment'],
+                row['kpi_channel_adjustment'],
                 now,
                 now
             ])
         
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
-            'channel', 'revenue_percentage', 'kpi_day_channel_initial',
-            'actual', 'gap', 'kpi_adjustment',
+            'channel', 'rev_pct', 'kpi_channel_initial',
+            'actual', 'gap', 'kpi_channel_adjustment',
             'created_at', 'updated_at'
         ]
         
-        self.client.insert("hskcdp.kpi_day_channel", data, column_names=columns)
+        self.client.insert("hskcdp.kpi_channel", data, column_names=columns)
     
     def calculate_and_save_kpi_day_channel(
         self,

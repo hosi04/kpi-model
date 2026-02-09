@@ -92,9 +92,9 @@ class KPIDayChannelMetadataCalculator:
                 # Get percentage from data if available, otherwise use 0.0
                 percentage = channels_for_label.get(channel, 0.0)
                 
-                # Initially, revenue_percentage_adj equals revenue_percentage
+                # Initially, rev_pct_adjustment equals revenue_percentage
                 # This can be adjusted later based on actual data or other factors
-                revenue_percentage_adj = percentage
+                rev_pct_adjustment = percentage
                 
                 results.append({
                     'calendar_date': calendar_date,
@@ -103,8 +103,8 @@ class KPIDayChannelMetadataCalculator:
                     'day': day,
                     'date_label': date_label,
                     'channel': channel,
-                    'revenue_percentage': float(percentage),
-                    'revenue_percentage_adj': float(revenue_percentage_adj)
+                    'rev_pct': float(percentage),
+                    'rev_pct_adjustment': float(rev_pct_adjustment)
                 })
         
         return results
@@ -124,19 +124,19 @@ class KPIDayChannelMetadataCalculator:
                 row['day'],
                 row['date_label'],
                 row['channel'],
-                row['revenue_percentage'],
-                row['revenue_percentage_adj'],
+                row['rev_pct'],
+                row['rev_pct_adjustment'],
                 now,
                 now
             ])
         
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
-            'channel', 'revenue_percentage', 'revenue_percentage_adj',
+            'channel', 'rev_pct', 'rev_pct_adjustment',
             'created_at', 'updated_at'
         ]
         
-        self.client.insert("hskcdp.kpi_day_channel_metadata", data, column_names=columns)
+        self.client.insert("hskcdp.kpi_channel_metadata", data, column_names=columns)
     
     def calculate_and_save_kpi_day_channel_metadata(
         self,
