@@ -130,6 +130,13 @@ class KPISKUCalculator:
         
         results = []
         today = date.today()
+        current_hour = datetime.now().hour
+        
+        # Lấy % revenue theo giờ và channel để tính forecast
+        hourly_revenue_pct_by_channel = self.revenue_helper.get_hourly_revenue_percentage_by_channel(days_back=30)
+        
+        # Cache để lưu actual_by_sku cho mỗi date (hàm trả về tất cả channel)
+        actual_by_sku_cache = {}
         
         for row in result.result_rows:
             calendar_date = row[0]
@@ -191,6 +198,40 @@ class KPISKUCalculator:
             # Giữ các cột cũ để backward compatibility
             kpi_day_channel_brand = float(kpi_brand_initial)
             
+            # Tính forecast cho ngày hôm nay
+            forecast = None
+            if calendar_date < today:
+                # Ngày quá khứ: forecast = actual
+                forecast = actual
+            elif calendar_date == today:
+                # Ngày hôm nay: tính forecast dựa trên actual đến giờ hiện tại và % revenue theo giờ
+                
+                # Bước 1: Lấy actual của TẤT CẢ SKU từ TẤT CẢ channel (chỉ query 1 lần, cache lại)
+                cache_key = calendar_date
+                if cache_key not in actual_by_sku_cache:
+                    # Data trả về: {channel: {sku: actual}}
+                    # Ví dụ: {'ONLINE_HASAKI': {'SKU001': 1000}, 'OFFLINE_HASAKI': {'SKU001': 2000}, 'ECOM': {'SKU001': 500}}
+                    actual_by_sku_cache[cache_key] = self.revenue_helper.get_daily_actual_until_hour_by_sku(
+                        target_date=calendar_date,
+                        until_hour=current_hour
+                    )
+                
+                # Bước 2: Lấy actual của SKU này ở channel này
+                actual_until_hour = Decimal('0')
+                if channel in actual_by_sku_cache[cache_key] and sku_name in actual_by_sku_cache[cache_key][channel]:
+                    actual_until_hour = actual_by_sku_cache[cache_key][channel][sku_name]
+                
+                # Bước 3: Lấy % revenue của giờ hiện tại ở channel này
+                # Ví dụ: ECOM ở giờ 9h có 5% revenue của cả ngày
+                hour_revenue_pct = hourly_revenue_pct_by_channel.get(channel, {}).get(current_hour, 0.0)
+                
+                # Bước 4: Tính forecast = actual / %rev
+                # Ví dụ: actual = 500, %rev = 0.05 => forecast = 500 / 0.05 = 10000
+                if hour_revenue_pct > 0:
+                    forecast = float(actual_until_hour) / hour_revenue_pct
+                else:
+                    forecast = 0.0
+            
             results.append({
                 'calendar_date': calendar_date,
                 'date_label': date_label,
@@ -205,7 +246,8 @@ class KPISKUCalculator:
                 'kpi_sku_initial': float(kpi_sku_initial),
                 'actual': actual,
                 'gap': gap,
-                'kpi_sku_adjustment': kpi_sku_adjustment
+                'kpi_sku_adjustment': kpi_sku_adjustment,
+                'forecast': forecast
             })
         
         return results
@@ -233,6 +275,7 @@ class KPISKUCalculator:
                 safe_float(row.get('actual')),
                 safe_float(row.get('gap')),
                 safe_float(row.get('kpi_sku_adjustment')),
+                safe_float(row.get('forecast')),
                 now,
                 now
             ])
@@ -242,7 +285,7 @@ class KPISKUCalculator:
             'channel', 'brand_name', 'sku', 'sku_classification',
             'revenue_share_in_class', 'kpi_day_channel_brand', 'kpi_brand',
             'revenue_by_group_sku', 'kpi_sku_initial',
-            'actual', 'gap', 'kpi_sku_adjustment',
+            'actual', 'gap', 'kpi_sku_adjustment', 'forecast',
             'created_at', 'updated_at'
         ]
         
@@ -270,7 +313,7 @@ if __name__ == "__main__":
     print("Calculating kpi_sku for month 1/2026...")
     kpi_sku_data = calculator.calculate_and_save_kpi_sku(
         target_year=2026,
-        target_month=1
+        target_month=2
     )
     
     print(f"Successfully saved {len(kpi_sku_data)} kpi_sku records")

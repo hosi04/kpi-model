@@ -366,6 +366,104 @@ class RevenueQueryHelper:
             return Decimal(str(result.result_rows[0][0]))
         else:
             return Decimal('0')
+    
+    def get_daily_actual_until_hour_by_sku(
+        self, 
+        target_date: date, 
+        until_hour: int
+    ) -> Dict[str, Dict[str, Decimal]]:
+        """
+        Returns: dict {channel: {sku: actual_amount}} - tổng actual của mỗi SKU từ 0h00 đến <until_hour theo từng channel
+        Platform trong DB thực chất là channel (ONLINE_HASAKI, OFFLINE_HASAKI, ECOM)
+        """
+        query = f"""
+            SELECT 
+                CAST(sku AS String) AS sku,
+                platform,
+                SUM(COALESCE(total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_details FINAL
+            WHERE toDate(created_at) = '{target_date}'
+              AND toHour(created_at) < {until_hour}
+              AND status NOT IN ('Canceled', 'Cancel')
+            GROUP BY sku, platform
+        """
+        result = self.client.query(query)
+        channel_sku_actuals = {}
+        for row in result.result_rows:
+            sku = str(row[0])
+            channel = str(row[1])  # platform trong DB = channel
+            actual_amount = Decimal(str(row[2]))
+            
+            if channel not in channel_sku_actuals:
+                channel_sku_actuals[channel] = {}
+            
+            channel_sku_actuals[channel][sku] = actual_amount
+        
+        return channel_sku_actuals
+    
+    def get_hourly_revenue_percentage_by_channel(self, days_back: int = 30) -> Dict[str, Dict[int, float]]:
+
+        query = f"""
+            SELECT 
+                toHour(created_at) as hour,
+                platform,
+                SUM(COALESCE(total_amount, 0)) as hour_revenue
+            FROM hskcdp.object_sql_transaction_details FINAL
+            WHERE toDate(created_at) BETWEEN today() - INTERVAL {days_back} DAY AND today() - INTERVAL 1 DAY
+              AND status NOT IN ('Canceled', 'Cancel')
+            GROUP BY hour, platform 
+            ORDER BY hour, platform
+        """
+        
+        result = self.client.query(query)
+        
+        # Map platform về channel và tính tổng revenue của tất cả các giờ theo từng channel
+        channel_hour_revenues = {}
+        channel_totals = {}
+        
+        for row in result.result_rows:
+            hour = int(row[0])
+            platform = str(row[1])
+            revenue = Decimal(str(row[2]))
+            
+            # Map platform về channel
+            if platform == 'ONLINE_HASAKI':
+                channel = 'ONLINE_HASAKI'
+            elif platform == 'OFFLINE_HASAKI':
+                channel = 'OFFLINE_HASAKI'
+            else:
+                channel = 'ECOM'
+            
+            if channel not in channel_hour_revenues:
+                channel_hour_revenues[channel] = {}
+                channel_totals[channel] = Decimal('0')
+            
+            if hour not in channel_hour_revenues[channel]:
+                channel_hour_revenues[channel][hour] = Decimal('0')
+            
+            channel_hour_revenues[channel][hour] += revenue
+            channel_totals[channel] += revenue
+        
+        # Tính % cho từng giờ theo từng channel
+        channel_hourly_percentages = {}
+        
+        for channel in channel_hour_revenues:
+            channel_hourly_percentages[channel] = {}
+            total_revenue = channel_totals[channel]
+            
+            if total_revenue > 0:
+                for hour in range(24):
+                    if hour in channel_hour_revenues[channel]:
+                        percentage = float(channel_hour_revenues[channel][hour] / total_revenue)
+                        channel_hourly_percentages[channel][hour] = percentage
+                    else:
+                        channel_hourly_percentages[channel][hour] = 0.0
+            else:
+                # Nếu không có data, set tất cả = 0
+                for hour in range(24):
+                    channel_hourly_percentages[channel][hour] = 0.0
+        
+        return channel_hourly_percentages
 
     # KPI CHANNEL METADATA RELATED QUERIES
     
