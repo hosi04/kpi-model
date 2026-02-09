@@ -453,6 +453,7 @@ class KPIDayCalculator:
             if calendar_date == today:
                 # Ngày hiện tại: dùng EOD đã tính
                 eod = eod_value
+                kpi_day_adjustment = eod_value
             elif calendar_date < today:
                 # Ngày đã qua: eod = actual (luôn có giá trị, nếu không có actual thì = 0)
                 if calendar_date in actuals:

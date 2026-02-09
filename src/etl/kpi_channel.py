@@ -17,19 +17,19 @@ class KPIDayChannelCalculator:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        # Sử dụng helper method để query từ kpi_day và kpi_day_channel_metadata
+        # Use helper method to query from kpi_day and kpi_channel_metadata
         kpi_day_channel_data = self.revenue_helper.get_kpi_day_with_channel_metadata(
             target_year=target_year,
             target_month=target_month
         )
         
-        # Lấy actual revenue theo channel và date
+        # Get actual revenue by channel and date
         actual_by_date = self.revenue_helper.get_actual_by_channel_and_date(
             target_year=target_year,
             target_month=target_month
         )
         
-        # Lấy kpi_day_adjustment theo date
+        # Get kpi_day_adjustment by date
         kpi_day_adjustment_by_date = self.revenue_helper.get_kpi_day_adjustment_by_date(
             target_year=target_year,
             target_month=target_month
@@ -45,25 +45,25 @@ class KPIDayChannelCalculator:
             day = row['day']
             date_label = row['date_label']
             channel = row['channel']
-            revenue_percentage_adj = row['revenue_percentage_adj']
+            rev_pct_adjustment = row['rev_pct_adjustment']
             kpi_day_initial = row['kpi_day_initial']
             
-            # Calculate kpi_day_channel_initial using revenue_percentage_adj
-            kpi_day_channel_initial = kpi_day_initial * revenue_percentage_adj
+            # Calculate kpi_channel_initial using rev_pct_adjustment
+            kpi_channel_initial = kpi_day_initial * rev_pct_adjustment
             
-            # Lấy actual revenue cho channel này trong ngày này
+            # Get actual revenue for this channel on this date
             actual = actual_by_date.get(calendar_date, {}).get(channel, 0.0)       
             
             if calendar_date <= today:
-                kpi_adjustment = actual
-                gap = actual - float(kpi_day_channel_initial)
+                kpi_channel_adjustment = Decimal(str(actual))
+                gap = Decimal(str(actual)) - kpi_channel_initial
             else:
-                gap = 0
+                gap = Decimal('0')
                 kpi_day_adjustment = kpi_day_adjustment_by_date.get(calendar_date)
                 if kpi_day_adjustment is not None:
-                    kpi_adjustment = float(kpi_day_adjustment) * float(revenue_percentage_adj)
+                    kpi_channel_adjustment = kpi_day_adjustment * rev_pct_adjustment
                 else:
-                    kpi_adjustment = None
+                    kpi_channel_adjustment = None
             
             results.append({
                 'calendar_date': calendar_date,
@@ -72,11 +72,11 @@ class KPIDayChannelCalculator:
                 'day': day,
                 'date_label': date_label,
                 'channel': channel,
-                'revenue_percentage': float(revenue_percentage_adj),
-                'kpi_day_channel_initial': float(kpi_day_channel_initial),
-                'actual': actual,
-                'gap': gap,
-                'kpi_adjustment': kpi_adjustment
+                'rev_pct': rev_pct_adjustment,
+                'kpi_channel_initial': kpi_channel_initial,
+                'actual': Decimal(str(actual)) if actual is not None else None,
+                'gap': Decimal(str(gap)) if gap is not None else None,
+                'kpi_channel_adjustment': kpi_channel_adjustment if kpi_channel_adjustment is not None else None
             })
         
         return results
@@ -96,23 +96,23 @@ class KPIDayChannelCalculator:
                 row['day'],
                 row['date_label'],
                 row['channel'],
-                row['revenue_percentage'],
-                row['kpi_day_channel_initial'],
+                row['rev_pct'],
+                row['kpi_channel_initial'],
                 row['actual'],
                 row['gap'],
-                row['kpi_adjustment'],
+                row['kpi_channel_adjustment'],
                 now,
                 now
             ])
         
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
-            'channel', 'revenue_percentage', 'kpi_day_channel_initial',
-            'actual', 'gap', 'kpi_adjustment',
+            'channel', 'rev_pct', 'kpi_channel_initial',
+            'actual', 'gap', 'kpi_channel_adjustment',
             'created_at', 'updated_at'
         ]
         
-        self.client.insert("hskcdp.kpi_day_channel", data, column_names=columns)
+        self.client.insert("hskcdp.kpi_channel", data, column_names=columns)
     
     def calculate_and_save_kpi_day_channel(
         self,
@@ -131,13 +131,41 @@ class KPIDayChannelCalculator:
 
 
 if __name__ == "__main__":
+    import sys
+    
     constants = Constants()
     calculator = KPIDayChannelCalculator(constants)
     
-    print("Calculating kpi_day_channel for month 1/2026...")
+    target_month = None
+    target_year = constants.KPI_YEAR_2026
+    
+    if len(sys.argv) > 1:
+        i = 1
+        while i < len(sys.argv):
+            if sys.argv[i] == "--target-month" and i + 1 < len(sys.argv):
+                target_month = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
+                target_year = int(sys.argv[i + 1])
+                i += 2
+            else:
+                i += 1
+    
+    if target_month is None:
+        today = date.today()
+        if today.year == constants.KPI_YEAR_2026:
+            target_month = today.month
+        else:
+            target_month = 1
+    
+    if target_month < 1 or target_month > 12:
+        print(f"Error: target_month must be between 1 and 12, received: {target_month}")
+        sys.exit(1)
+    
+    print(f"Calculating kpi_day_channel for month {target_month}/{target_year}...")
     kpi_day_channel_data = calculator.calculate_and_save_kpi_day_channel(
-        target_year=2026,
-        target_month=1
+        target_year=target_year,
+        target_month=target_month
     )
     
     print(f"Successfully saved {len(kpi_day_channel_data)} kpi_day_channel records")
