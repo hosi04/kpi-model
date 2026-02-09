@@ -71,7 +71,10 @@ kpi_day_metadata.py (monthly - đầu mỗi tháng mới)
 - `month_base.py` và `kpi_day_metadata.py` có thể chạy song song (không phụ thuộc nhau)
 
 **Formular**
-1. Cách tính kpi_day_adjustment
+- KPI MONTH
++ EOM = Actual (Nhỏ hơn hôm nay) + Sum(rev eom những ngày còn lại)
+
+1. Cách tính cho kpi_day
 
 - Uplift = Hệ số so với ngày NormalDay
 
@@ -85,6 +88,7 @@ kpi_day_metadata.py (monthly - đầu mỗi tháng mới)
 
 - kpi_day_adjustment = kpi_initial_day - (SUM(Gap) * Weighted / SUM(Weighted Left))
 
+- Ngày hiện tại => kpi_adjustment = eod
 <!-- kpi_brand = kpi_day * kpi_channel -->
 
 
@@ -95,7 +99,10 @@ kpi_day_metadata.py (monthly - đầu mỗi tháng mới)
 
 - Giá trị của kpi_adjustment = eom
 
+3. Cách tính cho kpi_channel
 
+- kpi_channel_initial = kpi_day_initial * revenue_percentage
+- kpi_channel_adjustment = kpi_channel_initial - (gap * uplift / SUM(weighted_left))
 
 **- DDL CREATE ALL TABLES IN PROJECT**
 CREATE TABLE hskcdp.kpi_day (

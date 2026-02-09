@@ -1,4 +1,5 @@
-from datetime import datetime
+from decimal import Decimal
+from datetime import datetime, date
 from typing import List, Dict
 from src.utils.clickhouse_client import get_client
 from src.utils.constants import Constants
@@ -76,7 +77,7 @@ class KPIDayChannelMetadataCalculator:
             for channel in self.constants.ALL_CHANNELS:
                 percentage = channels_for_label.get(channel, 0.0)
                 
-                revenue_percentage_adj = percentage
+                rev_pct_adjustment = percentage
                 
                 results.append({
                     'calendar_date': calendar_date,
@@ -85,8 +86,8 @@ class KPIDayChannelMetadataCalculator:
                     'day': day,
                     'date_label': date_label,
                     'channel': channel,
-                    'revenue_percentage': float(percentage),
-                    'revenue_percentage_adj': float(revenue_percentage_adj)
+                    'rev_pct': Decimal(str(percentage)),
+                    'rev_pct_adjustment': Decimal(str(rev_pct_adjustment))
                 })
         
         return results
@@ -106,19 +107,19 @@ class KPIDayChannelMetadataCalculator:
                 row['day'],
                 row['date_label'],
                 row['channel'],
-                row['revenue_percentage'],
-                row['revenue_percentage_adj'],
+                row['rev_pct'],
+                row['rev_pct_adjustment'],
                 now,
                 now
             ])
         
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
-            'channel', 'revenue_percentage', 'revenue_percentage_adj',
+            'channel', 'rev_pct', 'rev_pct_adjustment',
             'created_at', 'updated_at'
         ]
         
-        self.client.insert("hskcdp.kpi_day_channel_metadata", data, column_names=columns)
+        self.client.insert("hskcdp.kpi_channel_metadata", data, column_names=columns)
     
     def calculate_and_save_kpi_day_channel_metadata(
         self,
@@ -138,14 +139,42 @@ class KPIDayChannelMetadataCalculator:
 
 
 if __name__ == "__main__":
+    import sys
+    
     constants = Constants()
     calculator = KPIDayChannelMetadataCalculator(constants)
     
-    print("Calculating kpi_day_channel_metadata for month 1/2026...")
+    target_month = None
+    target_year = constants.KPI_YEAR_2026
+    
+    if len(sys.argv) > 1:
+        i = 1
+        while i < len(sys.argv):
+            if sys.argv[i] == "--target-month" and i + 1 < len(sys.argv):
+                target_month = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
+                target_year = int(sys.argv[i + 1])
+                i += 2
+            else:
+                i += 1
+    
+    if target_month is None:
+        today = date.today()
+        if today.year == constants.KPI_YEAR_2026:
+            target_month = today.month
+        else:
+            target_month = 1
+    
+    if target_month < 1 or target_month > 12:
+        print(f"Error: target_month must be between 1 and 12, received: {target_month}")
+        sys.exit(1)
+    
+    print(f"Calculating kpi_day_channel_metadata for month {target_month}/{target_year}...")
     metadata_data = calculator.calculate_and_save_kpi_day_channel_metadata(
-        target_year=2026,
-        target_month=1
+        target_year=target_year,
+        target_month=target_month
     )
     
-    print(f"Successfully saved {len(metadata_data)} kpi_day_channel_metadata records")
+    print(f"Successfully saved {len(metadata_data)} kpi_channel_metadata records")
 

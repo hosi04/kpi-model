@@ -97,7 +97,7 @@ if __name__ == "__main__":
     
     print("Calculating kpi_brand_metadata for month 1...")
     metadata_data = calculator.calculate_and_save_kpi_brand_metadata(
-        target_month=1
+        target_month=2
     )
     
     print(f"Successfully saved {len(metadata_data)} kpi_brand_metadata records")
