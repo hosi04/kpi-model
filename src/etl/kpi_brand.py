@@ -58,7 +58,7 @@ class KPIBrandCalculator:
             # Calculate kpi_brand_adjustment:
             # - Với những ngày đã qua và ngày hiện tại: kpi_brand_adjustment = actual
             # - Với ngày tương lai: kpi_brand_adjustment = kpi_day_channel_adjustment * per_of_rev_by_brand_adj
-            if calendar_date <= today:
+            if calendar_date < today:
                 # Ngày đã qua và ngày hiện tại: kpi_brand_adjustment = actual
                 kpi_brand_adjustment = actual
                 gap = actual - float(kpi_brand_initial)

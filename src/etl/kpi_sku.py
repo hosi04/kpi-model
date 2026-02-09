@@ -162,7 +162,7 @@ class KPISKUCalculator:
                 kpi_sku_initial = Decimal('0')
                 revenue_by_group_sku = Decimal('0')
 
-            if calendar_date <= today:
+            if calendar_date < today:
                 kpi_sku_adjustment = actual
                 gap = actual - float(kpi_sku_initial)
             else:
