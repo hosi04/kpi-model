@@ -212,7 +212,7 @@ class KPIAdjustmentCalculator:
                 next_year,
                 month,
                 kpi_initial,  # kpi_initial = kpi_adjustment của version cũ
-                None,  # actual_2026
+                None,  # actual
                 None,  # gap
                 None,  # eom
                 kpi_initial,  # kpi_adjustment (ban đầu = kpi_initial)
@@ -221,7 +221,7 @@ class KPIAdjustmentCalculator:
             ])
         
         columns = [
-            'version', 'year', 'month', 'kpi_initial', 'actual_2026', 'gap',
+            'version', 'year', 'month', 'kpi_initial', 'actual', 'gap',
             'eom', 'kpi_adjustment', 'created_at', 'updated_at'
         ]
         
@@ -413,7 +413,7 @@ class KPIAdjustmentCalculator:
             target_year,
             adjusted_month,
             new_kpi_initial,  # kpi_initial mới từ marketing
-            None,  # actual_2026 (giữ nguyên, sẽ được tính lại sau)
+            None,  # actual (giữ nguyên, sẽ được tính lại sau)
             None,  # gap (giữ nguyên, sẽ được tính lại sau)
             None,  # eom (giữ nguyên, sẽ được tính lại sau)
             new_kpi_initial,  # kpi_adjustment (tạm thời = kpi_initial, sẽ được tính lại sau)
@@ -457,7 +457,7 @@ class KPIAdjustmentCalculator:
                 target_year,
                 month,
                 kpi_initial_new,  # kpi_initial mới
-                None,  # actual_2026 (giữ nguyên, sẽ được tính lại sau)
+                None,  # actual (giữ nguyên, sẽ được tính lại sau)
                 None,  # gap (giữ nguyên, sẽ được tính lại sau)
                 None,  # eom (giữ nguyên, sẽ được tính lại sau)
                 kpi_initial_new,  # kpi_adjustment (tạm thời = kpi_initial, sẽ được tính lại sau)
@@ -467,7 +467,7 @@ class KPIAdjustmentCalculator:
         
         # 8. Update vào database
         columns = [
-            'version', 'year', 'month', 'kpi_initial', 'actual_2026', 'gap',
+            'version', 'year', 'month', 'kpi_initial', 'actual', 'gap',
             'eom', 'kpi_adjustment', 'created_at', 'updated_at'
         ]
         
@@ -561,13 +561,13 @@ class KPIAdjustmentCalculator:
                 eom_value = eoms[month]
                 gap = gaps[month]
                 kpi_adjustment = eom_value
-                actual_2026 = actuals_day[month]
+                actual = actuals_day[month]
             elif month in actuals_month:
-                actual_2026 = Decimal(str(actuals_month[month]))
+                actual = Decimal(str(actuals_month[month]))
                 gap = gaps[month]
-                kpi_adjustment = actual_2026
+                kpi_adjustment = actual
             else:
-                actual_2026 = None
+                actual = None
                 gap = None
                 kpi_adjustment = kpi_initial - gap_per_remaining_month
             
@@ -576,7 +576,7 @@ class KPIAdjustmentCalculator:
                 'year': self.constants.KPI_YEAR_2026,
                 'month': month,
                 'kpi_initial': float(kpi_initial),
-                'actual_2026': float(actual_2026) if actual_2026 is not None else None,
+                'actual': float(actual) if actual is not None else None,
                 'gap': float(gap) if gap is not None else None,
                 'eom': float(eoms[month]) if month in eoms else None,
                 'kpi_adjustment': float(kpi_adjustment)
@@ -617,7 +617,7 @@ class KPIAdjustmentCalculator:
                 row['year'],
                 row['month'],
                 row['kpi_initial'],
-                row['actual_2026'],
+                row['actual'],
                 row['gap'],
                 row['eom'],
                 row['kpi_adjustment'],
@@ -626,7 +626,7 @@ class KPIAdjustmentCalculator:
             ])
         
         columns = [
-            'version', 'year', 'month', 'kpi_initial', 'actual_2026', 'gap',
+            'version', 'year', 'month', 'kpi_initial', 'actual', 'gap',
             'eom', 'kpi_adjustment', 'created_at', 'updated_at'
         ]
         

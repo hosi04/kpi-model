@@ -16,7 +16,7 @@ class KPIBrandMetadataCalculator:
         self,
         target_month: int
     ) -> List[Dict]:
-        # Sử dụng helper method để query từ object_sql_transaction_detail (3 tháng gần nhất)
+        # Sử dụng helper method để query từ object_sql_transaction_details (3 tháng gần nhất)
         revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months()
         
         # Lọc chỉ lấy brands có revenue > 0
