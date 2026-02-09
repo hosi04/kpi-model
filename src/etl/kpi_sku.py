@@ -49,7 +49,7 @@ class KPISKUCalculator:
                 SELECT 
                     toString(sku) AS sku,
                     MIN(td.created_at) as begin_date
-                FROM hskcdp.object_sql_transaction_detail td FINAL 
+                FROM hskcdp.object_sql_transaction_details td FINAL 
                 GROUP BY toString(sku)
                 HAVING toYear(begin_date) = {target_year}
                    AND toMonth(begin_date) = {target_month}

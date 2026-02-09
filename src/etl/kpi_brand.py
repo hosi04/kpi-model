@@ -47,10 +47,10 @@ class KPIBrandCalculator:
             channel = row['channel']
             brand_name = row['brand_name']
             per_of_rev_by_brand_adj = row['per_of_rev_by_brand_adj']
-            kpi_day_channel_initial = row['kpi_day_channel_initial']
+            kpi_channel_initial = row['kpi_channel_initial']
             
-            # Calculate kpi_brand_initial = kpi_day_channel_initial * per_of_rev_by_brand_adj
-            kpi_brand_initial = kpi_day_channel_initial * per_of_rev_by_brand_adj
+            # Calculate kpi_brand_initial = kpi_channel_initial * per_of_rev_by_brand_adj
+            kpi_brand_initial = kpi_channel_initial * per_of_rev_by_brand_adj
             
             # Lấy actual revenue cho brand này trong channel này trong ngày này
             actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, 0.0)
@@ -145,5 +145,5 @@ if __name__ == "__main__":
     print("Calculating kpi_brand for month 1/2026...")
     kpi_brand_data = calculator.calculate_and_save_kpi_brand(
         target_year=2026,
-        target_month=1
+        target_month=2
     )

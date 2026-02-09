@@ -16,7 +16,7 @@ class KPIBrandMetadataCalculator:
         self,
         target_month: int
     ) -> List[Dict]:
-        # Sử dụng helper method để query từ object_sql_transaction_detail (3 tháng gần nhất)
+        # Sử dụng helper method để query từ object_sql_transaction_details (3 tháng gần nhất)
         revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months()
         
         # Lọc chỉ lấy brands có revenue > 0
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     
     print("Calculating kpi_brand_metadata for month 1...")
     metadata_data = calculator.calculate_and_save_kpi_brand_metadata(
-        target_month=1
+        target_month=2
     )
     
     print(f"Successfully saved {len(metadata_data)} kpi_brand_metadata records")

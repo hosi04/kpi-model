@@ -85,8 +85,8 @@ class KPIDayChannelMetadataCalculator:
                     'day': day,
                     'date_label': date_label,
                     'channel': channel,
-                    'revenue_percentage': float(percentage),
-                    'revenue_percentage_adj': float(revenue_percentage_adj)
+                    'rev_pct': float(percentage),
+                    'rev_pct_adjustment': float(revenue_percentage_adj)
                 })
         
         return results
@@ -106,19 +106,19 @@ class KPIDayChannelMetadataCalculator:
                 row['day'],
                 row['date_label'],
                 row['channel'],
-                row['revenue_percentage'],
-                row['revenue_percentage_adj'],
+                row['rev_pct'],
+                row['rev_pct_adjustment'],
                 now,
                 now
             ])
         
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
-            'channel', 'revenue_percentage', 'revenue_percentage_adj',
+            'channel', 'rev_pct', 'rev_pct_adjustment',
             'created_at', 'updated_at'
         ]
         
-        self.client.insert("hskcdp.kpi_day_channel_metadata", data, column_names=columns)
+        self.client.insert("hskcdp.kpi_channel_metadata", data, column_names=columns)
     
     def calculate_and_save_kpi_day_channel_metadata(
         self,
@@ -143,7 +143,7 @@ if __name__ == "__main__":
     
     print("Calculating kpi_day_channel_metadata for month 1/2026...")
     metadata_data = calculator.calculate_and_save_kpi_day_channel_metadata(
-        target_year=2026,
+        target_year=2026,   
         target_month=1
     )
     
