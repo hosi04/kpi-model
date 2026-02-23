@@ -54,7 +54,7 @@ class KPIDayChannelCalculator:
             # Get actual revenue for this channel on this date
             actual = actual_by_date.get(calendar_date, {}).get(channel, 0.0)       
             
-            if calendar_date <= today:
+            if calendar_date < today:
                 kpi_channel_adjustment = Decimal(str(actual))
                 gap = Decimal(str(actual)) - kpi_channel_initial
             else:

@@ -180,6 +180,34 @@ ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `actual` Nullable(Decimal(40
 ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
 ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `kpi_brand_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
 
+CREATE TABLE hskcdp.kpi_sku (
+  `calendar_date` Date,
+  `date_label` String,
+  `channel` String,
+  `brand_name` String,
+  `sku` String,
+  `sku_classification` String,
+  `revenue_share_in_class` Decimal(40, 15),
+  `kpi_day_channel_brand` Decimal(40, 15),
+  `kpi_brand` Decimal(40, 15),
+  `revenue_by_group_sku` Decimal(40, 15),
+  `kpi_sku_initial` Decimal(40, 15),
+  `actual` Nullable(Decimal(40, 15)),
+  `gap` Nullable(Decimal(40, 15)),
+  `kpi_sku_adjustment` Nullable(Decimal(40, 15)),
+  `forecast` Nullable(Decimal(40, 15)),
+  `created_at` DateTime DEFAULT now(),
+  `updated_at` DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (calendar_date, channel, brand_name, sku)
+SETTINGS index_granularity = 8192;
+
+-- DDL để add columns actual, gap, kpi_sku_adjustment, forecast nếu bảng đã tồn tại
+ALTER TABLE hskcdp.kpi_sku ADD COLUMN `actual` Nullable(Decimal(40, 15)) AFTER `kpi_sku_initial`;
+ALTER TABLE hskcdp.kpi_sku ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
+ALTER TABLE hskcdp.kpi_sku ADD COLUMN `kpi_sku_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
+ALTER TABLE hskcdp.kpi_sku ADD COLUMN `forecast` Nullable(Decimal(40, 15)) AFTER `kpi_sku_adjustment`;
+
 CREATE TABLE hskcdp.actual_2026_day_staging (
   `year` UInt16,
   `calendar_date` Date,
