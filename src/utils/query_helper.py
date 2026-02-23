@@ -475,18 +475,18 @@ class RevenueQueryHelper:
         
         query = f"""
             SELECT 
-                d.date_label, 
+                d.priority_label AS date_label, 
                 SUM(t.total_amount) as total_revenue 
             FROM hskcdp.object_sql_transaction_details AS t FINAL
             INNER JOIN hskcdp.dim_date d
                 ON toDate(t.created_at) = d.calendar_date
             WHERE toDate(t.created_at) >= today() - INTERVAL 3 MONTH
-              AND d.date_label IN ({date_labels_str})
+              AND d.priority_label IN ({date_labels_str})
               AND t.status NOT IN ('Canceled', 'Cancel')
               AND (toMonth(t.created_at), toDayOfMonth(t.created_at)) NOT IN (
                     (6,6), (9,9), (11,11), (12,12)
               )
-            GROUP BY d.date_label
+            GROUP BY d.priority_label
         """
         
         result = self.client.query(query)
@@ -501,7 +501,7 @@ class RevenueQueryHelper:
         
         query = f"""
             SELECT 
-                d.date_label,
+                d.priority_label AS date_label,
                 CASE 
                     WHEN t.platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
                     WHEN t.platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
@@ -512,12 +512,12 @@ class RevenueQueryHelper:
             INNER JOIN hskcdp.dim_date d
                 ON toDate(t.created_at) = d.calendar_date
             WHERE toDate(t.created_at) >= today() - INTERVAL 3 MONTH
-              AND d.date_label IN ({date_labels_str})
+              AND d.priority_label IN ({date_labels_str})
               AND t.status NOT IN ('Canceled', 'Cancel')
               AND (toMonth(t.created_at), toDayOfMonth(t.created_at)) NOT IN (
                     (6,6), (9,9), (11,11), (12,12)
               )
-            GROUP BY d.date_label, channel
+            GROUP BY d.priority_label, channel
         """
         
         result = self.client.query(query)
@@ -540,17 +540,13 @@ class RevenueQueryHelper:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        """
-        Lấy các ngày trong tháng từ dim_date, loại trừ double days
-        Returns: list of dicts với keys: calendar_date, year, month, day, date_label
-        """
         query = f"""
             SELECT 
                 calendar_date,
                 year,
                 month,
                 day,
-                date_label
+                priority_label AS date_label
             FROM dim_date
             WHERE year = {target_year}
               AND month = {target_month}
