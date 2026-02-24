@@ -187,6 +187,7 @@ CREATE TABLE hskcdp.kpi_sku (
   `brand_name` String,
   `sku` String,
   `sku_classification` String,
+  `category_name` Nullable(String),
   `revenue_share_in_class` Decimal(40, 15),
   `kpi_day_channel_brand` Decimal(40, 15),
   `kpi_brand` Decimal(40, 15),
@@ -202,11 +203,19 @@ CREATE TABLE hskcdp.kpi_sku (
 ORDER BY (calendar_date, channel, brand_name, sku)
 SETTINGS index_granularity = 8192;
 
--- DDL để add columns actual, gap, kpi_sku_adjustment, forecast nếu bảng đã tồn tại
+-- DDL để add columns category_name, actual, gap, kpi_sku_adjustment, forecast nếu bảng đã tồn tại
+ALTER TABLE hskcdp.kpi_sku ADD COLUMN `category_name` Nullable(String) AFTER `sku_classification`;
 ALTER TABLE hskcdp.kpi_sku ADD COLUMN `actual` Nullable(Decimal(40, 15)) AFTER `kpi_sku_initial`;
 ALTER TABLE hskcdp.kpi_sku ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
 ALTER TABLE hskcdp.kpi_sku ADD COLUMN `kpi_sku_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
 ALTER TABLE hskcdp.kpi_sku ADD COLUMN `forecast` Nullable(Decimal(40, 15)) AFTER `kpi_sku_adjustment`;
+
+-- Nếu cột category_name đã tồn tại nhưng là String (non-nullable), cần thay đổi thành Nullable(String)
+-- ClickHouse không hỗ trợ MODIFY COLUMN trực tiếp, cần làm theo các bước sau:
+-- 1. Tạo cột mới nullable: ALTER TABLE hskcdp.kpi_sku ADD COLUMN `category_name_new` Nullable(String) AFTER `sku_classification`;
+-- 2. Copy data: ALTER TABLE hskcdp.kpi_sku UPDATE `category_name_new` = `category_name` WHERE 1;
+-- 3. Drop cột cũ: ALTER TABLE hskcdp.kpi_sku DROP COLUMN `category_name`;
+-- 4. Rename cột mới: ALTER TABLE hskcdp.kpi_sku RENAME COLUMN `category_name_new` TO `category_name`;
 
 CREATE TABLE hskcdp.actual_2026_day_staging (
   `year` UInt16,

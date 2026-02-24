@@ -1,3 +1,4 @@
+from decimal import Decimal
 class Constants:
     # Base year for revenue calculation
     BASE_YEAR: int = 2025

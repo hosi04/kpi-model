@@ -35,7 +35,7 @@ class KPISKUCalculator:
                     kpi_brand_adjustment
                 FROM hskcdp.kpi_day_channel_brand FINAL
                 WHERE year = {target_year}
-                  AND month = {target_month}
+                    AND month = {target_month}
             ),
             brand_total_by_date AS (
                 SELECT
@@ -45,17 +45,24 @@ class KPISKUCalculator:
                 FROM brand_data
                 GROUP BY calendar_date, brand_name
             ),
+            ecom_products AS (
+                SELECT
+                    sku,
+                    category_name
+                FROM hskcdp.raw_ecom_products FINAL
+            ),
             cross_join AS (
                 SELECT
-                    b.calendar_date,
-                    b.date_label,
-                    b.channel,
-                    b.brand_name,
-                    b.kpi_brand_initial,
-                    b.kpi_brand_adjustment,
-                    s.sku,
-                    s.sku_classification,
-                    s.revenue_share_in_class
+                    b.calendar_date AS calendar_date,
+                    b.date_label AS date_label,
+                    b.channel AS channel,
+                    b.brand_name AS brand_name,
+                    b.kpi_brand_initial AS kpi_brand_initial,
+                    b.kpi_brand_adjustment AS kpi_brand_adjustment,
+                    s.sku AS sku,
+                    s.sku_classification AS sku_classification,
+                    s.revenue_share_in_class AS revenue_share_in_class,
+                    ep.category_name AS category_name
                 FROM brand_data AS b
                 INNER JOIN (
                     SELECT 
@@ -66,6 +73,8 @@ class KPISKUCalculator:
                     FROM hskcdp.dim_sku 
                 ) AS s 
                 ON s.brand_name = b.brand_name
+                LEFT JOIN ecom_products AS ep 
+                ON s.sku = ep.sku
             ),
             brand_sku_stats AS (
                 SELECT
@@ -112,13 +121,14 @@ class KPISKUCalculator:
                 sku.kpi_brand_initial,
                 sku.kpi_brand_adjustment,
                 sku.sku, 
-                sku.sku_classification,
+                sku.sku_classification, 
                 sku.revenue_share_in_class,
                 sku.hero_count,
                 sku.core_count,
                 bt.kpi_brand_total AS kpi_brand,
                 sku.kpi_brand_initial * sku.group_percentage AS revenue_by_group_sku,
-                (sku.revenue_share_in_class / 100.0) * sku.kpi_brand_initial * sku.group_percentage AS kpi_sku_initial
+                (sku.revenue_share_in_class / 100.0) * sku.kpi_brand_initial * sku.group_percentage AS kpi_sku_initial, 
+                sku.category_name AS category_name
             FROM adjusted_cross_join AS sku
             INNER JOIN brand_total_by_date bt 
                 ON sku.calendar_date = bt.calendar_date
@@ -154,7 +164,15 @@ class KPISKUCalculator:
             kpi_brand = safe_decimal(row[11])
             revenue_by_group_sku = safe_decimal(row[12])
             kpi_sku_initial = safe_decimal(row[13])
-            
+            raw_category = str(row[14])
+            if raw_category is None:
+                category_name = ''
+            else:
+                cleaned = str(raw_category).strip()
+                if cleaned.lower() == 'none':
+                    category_name = ''
+                else:
+                    category_name = cleaned
             # Lấy actual revenue cho sku này
             actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, {}).get(sku_name, 0.0)
             # Với Tail: kpi_sku_initial = 0 cho tất cả các ngày
@@ -239,6 +257,7 @@ class KPISKUCalculator:
                 'brand_name': brand_name,
                 'sku': sku_name,
                 'sku_classification': sku_classification,
+                'category_name': category_name,
                 'revenue_share_in_class': revenue_share_in_class,
                 'kpi_day_channel_brand': kpi_day_channel_brand,
                 'kpi_brand': float(kpi_brand),
@@ -260,6 +279,7 @@ class KPISKUCalculator:
         
         data = []
         for row in kpi_sku_data:
+            
             data.append([
                 row['calendar_date'],
                 row['date_label'],
@@ -267,6 +287,7 @@ class KPISKUCalculator:
                 row['brand_name'],
                 row['sku'],
                 row['sku_classification'],
+                row['category_name'],
                 safe_float(row['revenue_share_in_class']),
                 safe_float(row['kpi_day_channel_brand']),
                 safe_float(row['kpi_brand']),
@@ -282,7 +303,7 @@ class KPISKUCalculator:
         
         columns = [
             'calendar_date', 'date_label',
-            'channel', 'brand_name', 'sku', 'sku_classification',
+            'channel', 'brand_name', 'sku', 'sku_classification', 'category_name',
             'revenue_share_in_class', 'kpi_day_channel_brand', 'kpi_brand',
             'revenue_by_group_sku', 'kpi_sku_initial',
             'actual', 'gap', 'kpi_sku_adjustment', 'forecast',
