@@ -15,7 +15,7 @@ class KPIDayChannelMetadataCalculator:
     def calculate_channel_revenue_percentage(
         self,
         date_labels: List[str] = None
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> Dict[str, Dict[str, Decimal]]:
         if date_labels is None:
             date_labels = self.constants.DATE_LABELS
         
@@ -41,7 +41,7 @@ class KPIDayChannelMetadataCalculator:
                 else:
                     percentage = 0.0
                 
-                channel_percentage[date_label][channel] = float(percentage)
+                channel_percentage[date_label][channel] = Decimal(percentage)
         
         return channel_percentage
     
@@ -126,7 +126,6 @@ class KPIDayChannelMetadataCalculator:
         target_year: int,
         target_month: int
     ) -> bool:
-        """Check xem có data trong metadata_annually cho tháng đang chạy không"""
         query = f"""
             SELECT COUNT(*) 
             FROM hskcdp.metadata_annually
@@ -144,7 +143,6 @@ class KPIDayChannelMetadataCalculator:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        """Lấy data từ metadata_annually cho tháng đang chạy"""
         query = f"""
             SELECT year, month, priority_label, pct_offline, pct_online, pct_ecom
             FROM hskcdp.metadata_annually
@@ -160,9 +158,9 @@ class KPIDayChannelMetadataCalculator:
                 'year': int(row[0]),
                 'month': int(row[1]),
                 'priority_label': str(row[2]),
-                'pct_offline': float(row[3]) if row[3] is not None else 0.0,
-                'pct_online': float(row[4]) if row[4] is not None else 0.0,
-                'pct_ecom': float(row[5]) if row[5] is not None else 0.0
+                'pct_offline': Decimal(row[3]) if row[3] is not None else 0.0,
+                'pct_online': Decimal(row[4]) if row[4] is not None else 0.0,
+                'pct_ecom': Decimal(row[5]) if row[5] is not None else 0.0
             })
         
         return data
@@ -172,20 +170,17 @@ class KPIDayChannelMetadataCalculator:
         target_year: int,
         target_month: int
     ) -> None:
-        """Update rev_pct và rev_pct_adjustment trong kpi_channel_metadata từ metadata_annually"""
         annually_data = self.get_metadata_annually_data(target_year, target_month)
         
         if not annually_data:
             return
         
-        # Update cho từng priority_label và channel
         for row in annually_data:
-            priority_label = row['priority_label'].replace("'", "''")  # Escape dấu nháy đơn trong SQL
+            priority_label = row['priority_label'].replace("'", "''")
             pct_offline = row['pct_offline']
             pct_online = row['pct_online']
             pct_ecom = row['pct_ecom']
             
-            # Update OFFLINE_HASAKI
             update_offline_query = f"""
                 ALTER TABLE hskcdp.kpi_channel_metadata
                 UPDATE 
@@ -198,7 +193,6 @@ class KPIDayChannelMetadataCalculator:
             """
             self.client.command(update_offline_query)
             
-            # Update ONLINE_HASAKI
             update_online_query = f"""
                 ALTER TABLE hskcdp.kpi_channel_metadata
                 UPDATE 
@@ -211,7 +205,6 @@ class KPIDayChannelMetadataCalculator:
             """
             self.client.command(update_online_query)
             
-            # Update ECOM
             update_ecom_query = f"""
                 ALTER TABLE hskcdp.kpi_channel_metadata
                 UPDATE 
@@ -230,7 +223,6 @@ class KPIDayChannelMetadataCalculator:
         target_month: int,
         date_labels: List[str] = None
     ) -> List[Dict]:
-        # Luôn chạy logic hiện tại trước
         metadata_data = self.calculate_kpi_day_channel_metadata(
             target_year=target_year,
             target_month=target_month,
@@ -239,7 +231,6 @@ class KPIDayChannelMetadataCalculator:
         
         self.save_kpi_day_channel_metadata(metadata_data)
         
-        # Nếu có data trong metadata_annually, update các records có date_label trùng với priority_label
         if self.check_metadata_annually_exists(target_year, target_month):
             self.update_channel_metadata_from_annually(target_year, target_month)
         

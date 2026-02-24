@@ -17,19 +17,16 @@ class KPIDayChannelCalculator:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        # Use helper method to query from kpi_day and kpi_channel_metadata
         kpi_day_channel_data = self.revenue_helper.get_kpi_day_with_channel_metadata(
             target_year=target_year,
             target_month=target_month
         )
         
-        # Get actual revenue by channel and date
         actual_by_date = self.revenue_helper.get_actual_by_channel_and_date(
             target_year=target_year,
             target_month=target_month
         )
         
-        # Get kpi_day_adjustment by date
         kpi_day_adjustment_by_date = self.revenue_helper.get_kpi_day_adjustment_by_date(
             target_year=target_year,
             target_month=target_month
