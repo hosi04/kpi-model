@@ -153,42 +153,7 @@ class KPIAdjustmentCalculator:
         """
         
         current_version_result = self.client.query(current_version_query)
-        current_kpi_adjustments = {int(row[0]): float(row[1]) for row in current_version_result.result_rows}
-        
-        # If current version doesn't have all 12 months, get missing months from baseline "Thang 1"
-        if len(current_kpi_adjustments) < 12:
-            print(f"  - WARNING: Version '{current_version}' does not have all 12 months (has {len(current_kpi_adjustments)} months)")
-            print(f"  - Getting missing months from baseline 'Thang 1'")
-            
-            baseline_query = f"""
-                SELECT
-                    month,
-                    kpi_adjustment
-                FROM (
-                    SELECT
-                        month,
-                        kpi_adjustment,
-                        row_number() OVER (
-                            PARTITION BY year, month, version
-                            ORDER BY updated_at DESC
-                        ) AS rn
-                    FROM hskcdp.kpi_month FINAL
-                    WHERE year = {target_year}
-                      AND version = 'Thang 1'
-                )
-                WHERE rn = 1
-                ORDER BY month
-            """
-            baseline_result = self.client.query(baseline_query)
-            baseline_kpi_adjustments = {int(row[0]): float(row[1]) for row in baseline_result.result_rows}
-            
-            # Fill missing months from baseline
-            for month in range(1, 13):
-                if month not in current_kpi_adjustments:
-                    if month in baseline_kpi_adjustments:
-                        current_kpi_adjustments[month] = baseline_kpi_adjustments[month]
-                    else:
-                        raise ValueError(f"Cannot find kpi_adjustment for month {month} in both version '{current_version}' and baseline 'Thang 1'")
+        current_kpi_adjustments = {int(row[0]): Decimal(row[1]) for row in current_version_result.result_rows}
         
         print(f"  - Getting kpi_adjustment from version '{current_version}' for 12 months:")
         for month in sorted(current_kpi_adjustments.keys()):
@@ -205,13 +170,13 @@ class KPIAdjustmentCalculator:
                 next_version,
                 next_year,
                 month,
-                kpi_initial,  # kpi_initial = kpi_adjustment from old version
-                None,  # actual
-                None,  # gap
-                None,  # eom
-                kpi_initial,  # kpi_adjustment (initially = kpi_initial)
-                now,  # created_at
-                now   # updated_at
+                kpi_initial,
+                None,
+                None,
+                None, 
+                kpi_initial, 
+                now,
+                now 
             ])
         
         columns = [
@@ -228,12 +193,6 @@ class KPIAdjustmentCalculator:
         target_year: int = None,
         force: bool = False
     ) -> None:
-        """
-        Args:
-            source_month: Source month (e.g., 1 to create version 2 from version 1)
-            target_year: Year (default is KPI_YEAR_2026)
-            force: If True, will overwrite if target version already exists. If False, will raise error if version exists.
-        """
         if target_year is None:
             target_year = self.constants.KPI_YEAR_2026
         
@@ -294,42 +253,7 @@ class KPIAdjustmentCalculator:
         """
         
         source_version_result = self.client.query(source_version_query)
-        source_kpi_adjustments = {int(row[0]): float(row[1]) for row in source_version_result.result_rows}
-        
-        # If source version doesn't have all 12 months, get missing months from baseline "Thang 1"
-        if len(source_kpi_adjustments) < 12:
-            print(f"  - WARNING: Version '{source_version}' does not have all 12 months (has {len(source_kpi_adjustments)} months)")
-            print(f"  - Getting missing months from baseline 'Thang 1'")
-            
-            baseline_query = f"""
-                SELECT
-                    month,
-                    kpi_adjustment
-                FROM (
-                    SELECT
-                        month,
-                        kpi_adjustment,
-                        row_number() OVER (
-                            PARTITION BY year, month, version
-                            ORDER BY updated_at DESC
-                        ) AS rn
-                    FROM hskcdp.kpi_month FINAL
-                    WHERE year = {target_year}
-                      AND version = 'Thang 1'
-                )
-                WHERE rn = 1
-                ORDER BY month
-            """
-            baseline_result = self.client.query(baseline_query)
-            baseline_kpi_adjustments = {int(row[0]): float(row[1]) for row in baseline_result.result_rows}
-            
-            # Fill missing months from baseline
-            for month in range(1, 13):
-                if month not in source_kpi_adjustments:
-                    if month in baseline_kpi_adjustments:
-                        source_kpi_adjustments[month] = baseline_kpi_adjustments[month]
-                    else:
-                        raise ValueError(f"Cannot find kpi_adjustment for month {month} in both version '{source_version}' and baseline 'Thang 1'")
+        source_kpi_adjustments = {int(row[0]): Decimal(row[1]) for row in source_version_result.result_rows}
         
         print(f"  - Getting kpi_adjustment from version '{source_version}' for 12 months:")
         for month in sorted(source_kpi_adjustments.keys()):
@@ -366,9 +290,6 @@ class KPIAdjustmentCalculator:
         print(f"=== FINISHED CREATING NEW VERSION ===\n")
     
     def get_sum_gap_from_version(self, version: str, target_year: int) -> Decimal:
-        """
-        Get total gap of a version.
-        """
         query = f"""
             SELECT
                 SUM(gap) as sum_gap
@@ -392,9 +313,6 @@ class KPIAdjustmentCalculator:
         return Decimal('0')
     
     def get_kpi_initial_from_version(self, version: str, month: int, target_year: int) -> float:
-        """
-        Get kpi_initial of a month from a version.
-        """
         query = f"""
             SELECT
                 kpi_initial
@@ -436,7 +354,6 @@ class KPIAdjustmentCalculator:
         print(f"  - Adjusted month: {adjusted_month}")
         print(f"  - New kpi_initial: {new_kpi_initial}")
         
-        # Validation: Check if version exists
         check_version_query = f"""
             SELECT COUNT(*) as cnt
             FROM hskcdp.kpi_month FINAL
@@ -452,7 +369,6 @@ class KPIAdjustmentCalculator:
                 f"Please close numbers first (run on day 26) to create this version."
             )
         
-        # Validation: Check if version has all 12 months
         check_months_query = f"""
             SELECT COUNT(DISTINCT month) as cnt
             FROM (
@@ -477,8 +393,6 @@ class KPIAdjustmentCalculator:
                 f"Please ensure version has been created completely."
             )
         
-        # Validation: Check if adjusted_month is valid (must be next month)
-        # Example: Currently in month 1 → can only adjust month 2
         today = date.today()
         current_month = today.month
         expected_adjusted_month = current_month + 1 if current_month < 12 else 1
@@ -487,36 +401,26 @@ class KPIAdjustmentCalculator:
             print(f"  WARNING: Adjusted month ({adjusted_month}) is not the next month ({expected_adjusted_month})")
             print(f"  Continuing calculation with month {adjusted_month}...")
         
-        # 1. Get kpi_initial of adjusted month from version 1 (baseline)
         kpi_initial_version1_adjusted = self.get_kpi_initial_from_version(
             baseline_version, adjusted_month, target_year
         )
         
-        # 2. Calculate difference of adjusted month
         adjusted_month_diff = Decimal(str(new_kpi_initial)) - Decimal(str(kpi_initial_version1_adjusted))
         
-        # 3. Get Sum(gap) of version 1
         sum_gap_version1 = self.get_sum_gap_from_version(baseline_version, target_year)
         
-        # 4. Calculate new total gap after adjustment
         total_adjusted_gap = sum_gap_version1 + adjusted_month_diff
         
-        # 5. Calculate remaining months (only months AFTER adjusted month)
-        # Example: adjust month 2 → only recalculate months 3-12
-        # Months BEFORE adjusted month (1 to adjusted_month-1) remain unchanged
         remaining_months = [m for m in range(adjusted_month + 1, 13)]
 
-        # 6. Calculate gap distribution for each remaining month
         if len(remaining_months) > 0:
             gap_per_remaining_month = total_adjusted_gap / Decimal(str(len(remaining_months)))
         else:
             gap_per_remaining_month = Decimal('0')
         
-        # 7. Recalculate kpi_initial for remaining months and update to database
         now = datetime.now()
         data_to_update = []
         
-        # Get created_at for adjusted month
         get_created_at_adjusted_query = f"""
             SELECT created_at
             FROM (
@@ -537,21 +441,19 @@ class KPIAdjustmentCalculator:
         created_at_adjusted_result = self.client.query(get_created_at_adjusted_query)
         created_at_adjusted = created_at_adjusted_result.result_rows[0][0] if created_at_adjusted_result.result_rows else now
         
-        # Update adjusted month (keep marketing provided value)
         data_to_update.append([
             version,
             target_year,
             adjusted_month,
-            new_kpi_initial,  # new kpi_initial from marketing
-            None,  # actual (keep unchanged, will be recalculated later)
-            None,  # gap (keep unchanged, will be recalculated later)
-            None,  # eom (keep unchanged, will be recalculated later)
-            new_kpi_initial,  # kpi_adjustment (temporarily = kpi_initial, will be recalculated later)
-            created_at_adjusted,  # created_at (keep unchanged)
-            now    # updated_at
+            new_kpi_initial,
+            None,
+            None,
+            None,
+            new_kpi_initial,
+            created_at_adjusted,
+            now
         ])
         
-        # Recalculate kpi_initial for months AFTER adjusted month
         print(f"\n  - Recalculating kpi_initial for months after month {adjusted_month}:")
         for month in remaining_months:
             kpi_initial_version1 = self.get_kpi_initial_from_version(
@@ -561,7 +463,6 @@ class KPIAdjustmentCalculator:
             
             print(f"    Month {month}: {kpi_initial_version1} - {gap_per_remaining_month} = {kpi_initial_new}")
             
-            # Get current created_at to keep unchanged
             get_created_at_query = f"""
                 SELECT created_at
                 FROM (
@@ -586,16 +487,15 @@ class KPIAdjustmentCalculator:
                 version,
                 target_year,
                 month,
-                kpi_initial_new,  # new kpi_initial
-                None,  # actual (keep unchanged, will be recalculated later)
-                None,  # gap (keep unchanged, will be recalculated later)
-                None,  # eom (keep unchanged, will be recalculated later)
-                kpi_initial_new,  # kpi_adjustment (temporarily = kpi_initial, will be recalculated later)
-                created_at,  # created_at (keep unchanged)
-                now    # updated_at
+                kpi_initial_new,
+                None,
+                None,
+                None,
+                kpi_initial_new,
+                created_at,
+                now
             ])
         
-        # 8. Update to database
         columns = [
             'version', 'year', 'month', 'kpi_initial', 'actual', 'gap',
             'eom', 'kpi_adjustment', 'created_at', 'updated_at'
@@ -613,7 +513,6 @@ class KPIAdjustmentCalculator:
             
         version = f"Thang {target_month}"
 
-        # Check if current version already has kpi_initial
         current_version_query = f"""
             SELECT
                 month,
@@ -634,7 +533,7 @@ class KPIAdjustmentCalculator:
             ORDER BY month
         """
         current_version_result = self.client.query(current_version_query)
-        current_version_kpi = {int(row[0]): float(row[1]) for row in current_version_result.result_rows}
+        current_version_kpi = {int(row[0]): Decimal(row[1]) for row in current_version_result.result_rows}
         
         if len(current_version_kpi) == 12:
             print(f"DEBUG: Version '{version}' already has kpi_initial, keeping current values")
@@ -675,9 +574,6 @@ class KPIAdjustmentCalculator:
         gaps = {}
         total_gap = Decimal('0')
         
-        # Only calculate for months <= target_month
-        # Example: version 1 (target_month=1) → only calculate month 1
-        #          version 2 (target_month=2) → calculate months 1, 2
         for month in range(1, target_month + 1):
             kpi_initial = Decimal(str(base_kpi[month]['kpi_initial']))
             
@@ -699,44 +595,26 @@ class KPIAdjustmentCalculator:
                 gaps[month] = gap
                 total_gap += gap
         
-        # Gap distribution logic:
-        # - For months <= target_month: distribute gap among months without actual
-        # - For months > target_month: distribute total gap from months <= target_month
         months_with_actual = set(eoms.keys()) | set([m for m in actuals_month.keys() if m <= target_month])
         remaining_months_in_range = [m for m in range(1, target_month + 1) if m not in months_with_actual]
         remaining_months_count = len(remaining_months_in_range)
         
-        # Gap per month for months <= target_month without actual
         if remaining_months_count > 0:
             gap_per_remaining_month = total_gap / Decimal(str(remaining_months_count))
         else:
             gap_per_remaining_month = Decimal('0')
         
-        # Gap per month for months > target_month (distribute total gap from months <= target_month)
         months_after_target = 12 - target_month
         if months_after_target > 0 and total_gap != 0:
             gap_per_future_month = total_gap / Decimal(str(months_after_target))
         else:
             gap_per_future_month = Decimal('0')
         
-        print(f"DEBUG Gap distribution:")
-        print(f"  - Total gap (from months <= {target_month}) = {total_gap}")
-        print(f"  - Months with actual (EOM or monthly): {sorted(months_with_actual)}")
-        print(f"  - Remaining months in range (<= {target_month}) = {remaining_months_count}")
-        print(f"  - Gap per remaining month (<= {target_month}) = {gap_per_remaining_month}")
-        print(f"  - Months after target_month (> {target_month}) = {months_after_target}")
-        print(f"  - Gap per future month (> {target_month}) = {gap_per_future_month}")
-        
-        
         results = []
-        # Create results for all 12 months
-        # - Months <= target_month: calculate actual/eom/gap if available
-        # - Months > target_month: only kpi_adjustment from gap distribution (no actual/eom/gap)
         for month in range(1, 13):
             kpi_initial = Decimal(str(base_kpi[month]['kpi_initial']))
             
             if month <= target_month:
-                # Calculate actual/eom/gap for months <= target_month
                 if month in eoms:
                     eom_value = eoms[month]
                     gap = gaps[month]
@@ -747,12 +625,10 @@ class KPIAdjustmentCalculator:
                     gap = gaps[month]
                     kpi_adjustment = actual
                 else:
-                    # Month <= target_month but no actual yet → use gap distribution
                     actual = None
                     gap = None
                     kpi_adjustment = kpi_initial - gap_per_remaining_month
             else:
-                # Months > target_month: no actual/eom/gap, only kpi_adjustment from gap distribution
                 actual = None
                 gap = None
                 kpi_adjustment = kpi_initial - gap_per_future_month
@@ -761,11 +637,11 @@ class KPIAdjustmentCalculator:
                 'version': version,
                 'year': self.constants.KPI_YEAR_2026,
                 'month': month,
-                'kpi_initial': float(kpi_initial),
-                'actual': float(actual) if actual is not None else None,
-                'gap': float(gap) if gap is not None else None,
-                'eom': float(eoms[month]) if month in eoms else None,
-                'kpi_adjustment': float(kpi_adjustment)
+                'kpi_initial': Decimal(kpi_initial),
+                'actual': Decimal(actual) if actual is not None else None,
+                'gap': Decimal(gap) if gap is not None else None,
+                'eom': Decimal(eoms[month]) if month in eoms else None,
+                'kpi_adjustment': Decimal(kpi_adjustment)
             })
         
         return results
@@ -888,7 +764,6 @@ if __name__ == "__main__":
             new_kpi_initial=new_kpi_initial
         )
     else:
-        # Check if target-month is specified
         target_month = None
         i = 1
         while i < len(sys.argv):

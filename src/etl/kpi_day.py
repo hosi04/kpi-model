@@ -22,7 +22,7 @@ class KPIDayCalculator:
         query = f"""
             SELECT 
                 d.calendar_date,
-                d.date_label,
+                d.priority_label AS date_label,
                 d.year,
                 d.month,
                 d.day,
@@ -62,7 +62,7 @@ class KPIDayCalculator:
             ) AS md
                 ON d.year = md.year
                 AND d.month = md.month
-                AND d.date_label = md.date_label
+                AND d.priority_label = md.date_label
                 AND md.rn = 1
             WHERE d.year = {target_year}
               AND d.month = {target_month}
@@ -248,7 +248,6 @@ class KPIDayCalculator:
         total_gap = Decimal('0')
         today = date.today()
         
-        # Tính eod_value trước để có thể tính gap của ngày hiện tại
         eod_value = None
         current_datetime = datetime.now()
         current_hour = current_datetime.hour
@@ -289,10 +288,8 @@ class KPIDayCalculator:
         else:
             print(f"DEBUG: Current date ({today}) is not in the target month ({target_month}/{target_year})")
         
-        # Tính total_gap: bao gồm gap từ actual và gap từ eod của ngày hiện tại
         for calendar_date, actual_amount in actuals.items():
             if calendar_date in all_days:
-                # Bỏ qua ngày hiện tại vì sẽ tính gap từ eod
                 if calendar_date == today:
                     continue
                 kpi_day_initial = all_days[calendar_date]['kpi_day_initial']
@@ -300,7 +297,6 @@ class KPIDayCalculator:
                 total_gap += gap
                 days_with_actual.add(calendar_date)
         
-        # Tính gap của ngày hiện tại từ eod và cộng vào total_gap
         if today in all_days:
             kpi_day_initial_today = all_days[today]['kpi_day_initial']
             if eod_value is not None:
@@ -309,13 +305,11 @@ class KPIDayCalculator:
                 days_with_actual.add(today)
                 print(f"DEBUG: Gap of today (from EOD) = {gap_today}")
             else:
-                # Nếu không tính được eod, tính từ actual nếu có
                 if today in actuals:
                     gap_today = actuals[today] - kpi_day_initial_today
                     total_gap += gap_today
                     days_with_actual.add(today)
                 else:
-                    # Nếu không có actual và không có eod, tính gap = 0 - kpi_day_initial
                     gap_today = Decimal('0') - kpi_day_initial_today
                     total_gap += gap_today
         
@@ -380,7 +374,6 @@ class KPIDayCalculator:
             if calendar_date == today:
                 eod = eod_value
                 kpi_day_adjustment = eod_value
-                # Gap của ngày hiện tại = eod - kpi_day_initial
                 if eod_value is not None:
                     gap = Decimal(str(eod_value)) - kpi_day_initial
                 else:
@@ -510,7 +503,6 @@ class KPIDayCalculator:
             
             eod_value = row.get('eod')
             
-            # Gap của ngày hiện tại = eod - kpi_day_initial
             if calendar_date == today:
                 if eod_value is not None:
                     gap = Decimal(str(eod_value)) - kpi_day_initial

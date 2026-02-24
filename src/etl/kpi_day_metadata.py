@@ -181,7 +181,6 @@ class KPIDayMetadataCalculator:
         target_year: int,
         target_month: int
     ) -> bool:
-        """Check xem có data trong metadata_annually cho tháng đang chạy không"""
         query = f"""
             SELECT COUNT(*) 
             FROM hskcdp.metadata_annually
@@ -199,7 +198,6 @@ class KPIDayMetadataCalculator:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        """Lấy data từ metadata_annually cho tháng đang chạy"""
         query = f"""
             SELECT year, month, priority_label, uplift
             FROM hskcdp.metadata_annually
@@ -225,7 +223,6 @@ class KPIDayMetadataCalculator:
         target_year: int,
         target_month: int
     ) -> None:
-        """Insert data từ metadata_annually vào kpi_day_metadata"""
         annually_data = self.get_metadata_annually_data(target_year, target_month)
         
         if not annually_data:
@@ -242,18 +239,18 @@ class KPIDayMetadataCalculator:
         for row in annually_data:
             priority_label = row['priority_label']
             uplift = row['uplift']
-            so_ngay = 1  # Cố định = 1 cho ngày lễ annually
-            weight = uplift  # weight = so_ngay * uplift = 1 * uplift = uplift
+            so_ngay = 1
+            weight = uplift
             
             data.append([
                 target_year,
                 target_month,
-                priority_label,  # date_label = priority_label
-                0.0,  # avg_total = 0
+                priority_label,
+                0.0,
                 float(uplift),
                 so_ngay,
                 float(weight),
-                0.0,  # total_weight_month = 0 (tạm thời, sẽ update sau)
+                0.0,
                 historical_start_date,
                 historical_end_date,
                 now,
@@ -274,8 +271,6 @@ class KPIDayMetadataCalculator:
         target_year: int,
         target_month: int
     ) -> float:
-        """Tính tổng weight và update total_weight_month cho tháng"""
-        # Bước 1: Tính tổng weight
         query = f"""
             SELECT SUM(weight)
             FROM hskcdp.kpi_day_metadata FINAL
@@ -286,7 +281,6 @@ class KPIDayMetadataCalculator:
         result = self.client.query(query)
         sum_weight = result.result_rows[0][0] if result.result_rows else 0
         
-        # Bước 2: Update total_weight_month
         update_query = f"""
             ALTER TABLE hskcdp.kpi_day_metadata
             UPDATE total_weight_month = {sum_weight}
@@ -304,7 +298,6 @@ class KPIDayMetadataCalculator:
         target_month: int,
         date_labels: List[str] = None
     ) -> List[Dict]:
-        # Luôn chạy logic hiện tại trước
         metadata = self.calculate_metadata(
             target_year=target_year,
             target_month=target_month,
@@ -313,11 +306,8 @@ class KPIDayMetadataCalculator:
         
         self.save_metadata(metadata)
         
-        # Nếu có data trong metadata_annually, thêm các step bổ sung
         if self.check_metadata_annually_exists(target_year, target_month):
-            # Insert thêm data từ metadata_annually
             self.save_metadata_from_annually(target_year, target_month)
-            # Recalculate và update total_weight_month cho cả tháng
             self.update_total_weight_month(target_year, target_month)
         
         return metadata
