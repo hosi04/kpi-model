@@ -1,6 +1,6 @@
 from decimal import Decimal
 from datetime import date, timedelta, datetime
-from typing import Dict, Set, List
+from typing import Dict, Set, List, Optional
 from src.utils.clickhouse_client import get_client
 
 
@@ -222,6 +222,30 @@ class RevenueQueryHelper:
         result = self.client.query(query)
         actual_map = {row[0]: Decimal(row[1]) for row in result.result_rows}
         return actual_map
+
+    def get_forecast_by_day(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> Dict[date, Decimal]:
+        query = f"""
+            SELECT 
+                calendar_date,
+                SUM(COALESCE(forecast, 0)) as forecast_sum
+            FROM hskcdp.kpi_forecast FINAL
+            WHERE year = {target_year}
+              AND month = {target_month}
+            GROUP BY calendar_date
+        """
+        result = self.client.query(query)
+
+        forecast_by_day = {}
+        for row in result.result_rows:
+            calendar_date = row[0]
+            forecast_sum = Decimal(row[1])
+            forecast_by_day[calendar_date] = forecast_sum
+        return forecast_by_day
+
     
     # EOD (END OF DAY) RELATED QUERIES
     
@@ -285,7 +309,9 @@ class RevenueQueryHelper:
                 toHour(created_at) as hour,
                 platform,
                 SUM(COALESCE(total_amount, 0)) as hour_revenue
-            FROM hskcdp.object_sql_transaction_details FINAL
+            FROM hskcdp.object_sql_transaction_details AS td FINAL
+            JOIN hskcdp.dim_date AS dd FINAL
+                ON toDate(td.created_at) = dd.calendar_date AND dd.event_type = 'Normal Day'
             WHERE toDate(created_at) BETWEEN today() - INTERVAL {days_back} DAY AND today() - INTERVAL 1 DAY
               AND status NOT IN ('Canceled', 'Cancel')
             GROUP BY hour, platform 
@@ -375,7 +401,26 @@ class RevenueQueryHelper:
             channel_sku_actuals[channel][sku] = actual_amount
         
         return channel_sku_actuals        
+    
+    def get_max_hour_from_transaction_details(
+        self, 
+        target_year: int, 
+        target_month: int
+    ) -> Optional[int]:
+        query = f"""
+            SELECT
+                max(toHour(created_at)) AS max_hour
+            FROM hskcdp.object_sql_transaction_details FINAL
+            WHERE toDate(created_at) = today()
+              AND status NOT IN ('Canceled', 'Cancel')
+        """
+        result = self.client.query(query)
 
+        if result.result_rows and result.result_rows[0][0] is not None:
+            return int(result.result_rows[0][0])
+
+        return None
+    
     # KPI CHANNEL METADATA RELATED QUERIES
     
     def get_total_revenue_by_date_label_last_3_months(
@@ -602,15 +647,18 @@ class RevenueQueryHelper:
         return kpi_day_adjustment_by_date
 
     def get_forecast_by_channel_for_today(
-        self
+        self,
+        target_year: int,
+        target_month: int
     ) -> Dict[str, Decimal]:
-        query = """
-        SELECT
-            channel, 
-            SUM(COALESCE(forecast, 0)) AS forecast_sum
-        FROM hskcdp.kpi_brand FINAL 
-        WHERE calendar_date = today()
-        GROUP BY channel
+        query = f"""
+            SELECT
+                channel, 
+                SUM(COALESCE(forecast, 0)) AS forecast_sum 
+            FROM hskcdp.kpi_forecast FINAL 
+            WHERE year = {target_year}
+            AND month = {target_month}
+            GROUP BY channel
         """
 
         result = self.client.query(query)
@@ -924,3 +972,22 @@ class RevenueQueryHelper:
             actual_by_date[calendar_date][channel][brand_name][sku] = actual_amount
         
         return actual_by_date
+    
+    def get_forecast_by_month(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> Optional[Decimal]:
+        query = f"""
+            SELECT
+                SUM(COALESCE(forecast, 0)) AS eom_forecast
+            FROM hskcdp.kpi_forecast FINAL
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        result = self.client.query(query)
+
+        if result.result_rows and result.result_rows[0][0] is not None:
+            return Decimal(str(result.result_rows[0][0]))
+
+        return None

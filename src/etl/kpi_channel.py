@@ -31,6 +31,11 @@ class KPIDayChannelCalculator:
             target_year=target_year,
             target_month=target_month
         )
+
+        forecast_by_channel_for_today = self.revenue_helper.get_forecast_by_channel_for_today(
+            target_year=target_year,
+            target_month=target_month
+        )
         
         results = []
         today = date.today()
@@ -62,6 +67,14 @@ class KPIDayChannelCalculator:
                 else:
                     kpi_channel_adjustment = None
             
+            forecast = None 
+            if calendar_date < today:
+                forecast = actual 
+            elif calendar_date == today:
+                forecast = forecast_by_channel_for_today.get(channel, Decimal('0'))
+            else:
+                forecast = Decimal('0')
+
             results.append({
                 'calendar_date': calendar_date,
                 'year': year,
@@ -73,7 +86,8 @@ class KPIDayChannelCalculator:
                 'kpi_channel_initial': kpi_channel_initial,
                 'actual': Decimal(str(actual)) if actual is not None else None,
                 'gap': Decimal(str(gap)) if gap is not None else None,
-                'kpi_channel_adjustment': kpi_channel_adjustment if kpi_channel_adjustment is not None else None
+                'kpi_channel_adjustment': kpi_channel_adjustment if kpi_channel_adjustment is not None else None,
+                'forecast': forecast
             })
         
         return results
@@ -98,6 +112,7 @@ class KPIDayChannelCalculator:
                 row['actual'],
                 row['gap'],
                 row['kpi_channel_adjustment'],
+                row['forecast'],
                 now,
                 now
             ])
@@ -105,7 +120,7 @@ class KPIDayChannelCalculator:
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
             'channel', 'rev_pct', 'kpi_channel_initial',
-            'actual', 'gap', 'kpi_channel_adjustment',
+            'actual', 'gap', 'kpi_channel_adjustment', 'forecast',
             'created_at', 'updated_at'
         ]
         

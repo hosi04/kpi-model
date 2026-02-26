@@ -32,7 +32,7 @@ class KPIBrandMetadataCalculator:
             raise ValueError("Cannot calculate brand metadata: total revenue is 0")
         
         results = []
-        sum_check = Decimal('0')     
+        sum_check = 0.0   
         for brand_name, brand_revenue in sorted(positive_revenue_brands.items()):
             
             per_of_rev_by_brand = brand_revenue / total_revenue

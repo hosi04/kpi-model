@@ -242,6 +242,10 @@ class KPIDayCalculator:
             }
         
         actuals_dict = self.revenue_helper.get_daily_actual_by_month(target_year, target_month)
+
+        forecast_by_day = self.revenue_helper.get_forecast_by_day(target_year, target_month)
+
+
         actuals = {date: Decimal(str(amount)) for date, amount in actuals_dict.items()}
         
         days_with_actual = set()
@@ -372,10 +376,11 @@ class KPIDayCalculator:
                     gap = None
             
             if calendar_date == today:
-                eod = eod_value
-                kpi_day_adjustment = eod_value
+                # eod = eod_value
+                eod = forecast_by_day.get(calendar_date, Decimal('0'))
+                kpi_day_adjustment = eod
                 if eod_value is not None:
-                    gap = Decimal(str(eod_value)) - kpi_day_initial
+                    gap = Decimal(str(eod)) - kpi_day_initial
                 else:
                     gap = None
             elif calendar_date < today:
