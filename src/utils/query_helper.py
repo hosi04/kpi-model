@@ -600,6 +600,27 @@ class RevenueQueryHelper:
                 kpi_day_adjustment_by_date[calendar_date] = None
         
         return kpi_day_adjustment_by_date
+
+    def get_forecast_by_channel_for_today(
+        self
+    ) -> Dict[str, Decimal]:
+        query = """
+        SELECT
+            channel, 
+            SUM(COALESCE(forecast, 0)) AS forecast_sum
+        FROM hskcdp.kpi_brand FINAL 
+        WHERE calendar_date = today()
+        GROUP BY channel
+        """
+
+        result = self.client.query(query)
+
+        forecast_by_channel = {}
+        for row in result.result_rows:
+            channel = str(row[0])
+            forecast_by_channel[channel] = Decimal(str(row[1]))
+
+        return forecast_by_channel
     
     # KPI BRAND METADATA RELATED QUERIES
     
@@ -803,6 +824,57 @@ class RevenueQueryHelper:
         
         return kpi_day_channel_adjustment_by_date
     
+    def get_forecast_by_brand_for_today(
+        self
+    ) -> Dict[str, Dict[str, Decimal]]:
+        today = date.today()
+        
+        query = f"""
+            SELECT 
+                channel, 
+                brand_name,
+                SUM(COALESCE(forecast, 0)) AS forecast_sum
+            FROM hskcdp.kpi_sku FINAL
+            WHERE calendar_date = '{today}'
+            GROUP BY channel, brand_name
+        """
+        
+        result = self.client.query(query)
+        
+        forecast_by_channel_brand = {}
+        for row in result.result_rows:
+            channel = str(row[0])
+            brand_name = str(row[1])
+            forecast_sum = Decimal(str(row[2]))
+            
+            if channel not in forecast_by_channel_brand:
+                forecast_by_channel_brand[channel] = {}
+            forecast_by_channel_brand[channel][brand_name] = forecast_sum
+
+        return forecast_by_channel_brand
+    
+    def get_new_brand_this_month(
+        self
+    ) -> Set[str]:
+        query = """
+            SELECT 
+                brand_name,
+                MIN(created_at) AS first_sale_date
+            FROM hskcdp.object_sql_transaction_details FINAL
+            WHERE status NOT IN ('Canceled', 'Cancel')
+            GROUP BY brand_name
+            HAVING first_sale_date >= toStartOfMonth(today())
+        """
+
+        result = self.client.query(query)
+
+        new_brands = set()
+        for row in result.result_rows:
+            brand_name = str(row[0])
+            new_brands.add(brand_name)
+        
+        return new_brands
+
     # KPI SKU RELATED QUERIES
     
     def get_actual_by_sku_brand_channel_and_date(

@@ -33,7 +33,7 @@ class KPISKUCalculator:
                     brand_name,
                     kpi_brand_initial,
                     kpi_brand_adjustment
-                FROM hskcdp.kpi_day_channel_brand FINAL
+                FROM hskcdp.kpi_brand FINAL
                 WHERE year = {target_year}
                     AND month = {target_month}
             ),

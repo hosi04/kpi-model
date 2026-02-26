@@ -100,11 +100,11 @@ class KPIDayCalculator:
                 'month': month,
                 'day': day,
                 'date_label': date_label,
-                'kpi_month': float(kpi_month),
-                'uplift': float(uplift),
-                'weight': float(weight),
-                'total_weight_month': float(total_weight_month),
-                'kpi_day_initial': float(kpi_day_initial)
+                'kpi_month': Decimal(kpi_month),
+                'uplift': Decimal(uplift),
+                'weight': Decimal(weight),
+                'total_weight_month': Decimal(total_weight_month),
+                'kpi_day_initial': Decimal(kpi_day_initial)
             })
         
         return results
