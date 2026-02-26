@@ -32,10 +32,7 @@ class KPIDayChannelCalculator:
             target_month=target_month
         )
 
-        forecast_by_channel_for_today = self.revenue_helper.get_forecast_by_channel_for_today(
-            target_year=target_year,
-            target_month=target_month
-        )
+        forecast_by_channel_for_today = self.revenue_helper.get_forecast_by_channel_for_today()
         
         results = []
         today = date.today()

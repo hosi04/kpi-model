@@ -294,6 +294,7 @@ class KPIDayCalculator:
         
         for calendar_date, actual_amount in actuals.items():
             if calendar_date in all_days:
+                # Bỏ qua ngày hôm nay, sẽ xử lý riêng ở đoạn sau
                 if calendar_date == today:
                     continue
                 kpi_day_initial = all_days[calendar_date]['kpi_day_initial']
@@ -301,21 +302,13 @@ class KPIDayCalculator:
                 total_gap += gap
                 days_with_actual.add(calendar_date)
         
+        # Xử lý riêng cho ngày hôm nay: dùng forecast_by_day
         if today in all_days:
             kpi_day_initial_today = all_days[today]['kpi_day_initial']
-            if eod_value is not None:
-                gap_today = Decimal(str(eod_value)) - kpi_day_initial_today
-                total_gap += gap_today
-                days_with_actual.add(today)
-                print(f"DEBUG: Gap of today (from EOD) = {gap_today}")
-            else:
-                if today in actuals:
-                    gap_today = actuals[today] - kpi_day_initial_today
-                    total_gap += gap_today
-                    days_with_actual.add(today)
-                else:
-                    gap_today = Decimal('0') - kpi_day_initial_today
-                    total_gap += gap_today
+            gap_today = forecast_by_day.get(today, Decimal('0')) - kpi_day_initial_today
+            total_gap += gap_today
+            days_with_actual.add(today)
+            print(f"DEBUG: Gap of today (from forecast_by_day) = {gap_today}")
         
         for calendar_date, day_data in all_days.items():
             if calendar_date not in days_with_actual and calendar_date < today:
@@ -368,6 +361,7 @@ class KPIDayCalculator:
                 else:
                     weighted_left = uplift
                     if total_weight_left > 0:
+                        print(f"DEBUG: total_gap: {total_gap}")
                         gap_portion = (total_gap * uplift) / total_weight_left
                         kpi_day_adjustment = kpi_day_initial - gap_portion
                     else:

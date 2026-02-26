@@ -124,7 +124,7 @@ class KPIForecastCalculator:
         if data:
             columns = [
                 'calendar_date', 'year', 'month', 'day',
-                'channel', 'brand', 'sku', 'forecast', 'updated_at'
+                'channel', 'brand_name', 'sku', 'forecast', 'updated_at'
             ]
             self.client.insert("hskcdp.kpi_forecast", data, column_names=columns)
         return data

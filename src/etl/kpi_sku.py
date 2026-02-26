@@ -145,6 +145,18 @@ class KPISKUCalculator:
         # Lấy % revenue theo giờ và channel để tính forecast
         hourly_revenue_pct_by_channel = self.revenue_helper.get_hourly_revenue_percentage_by_channel(days_back=30)
         
+
+        # Lấy giờ lớn nhất có transaction trong ngày hôm nay (nếu có)
+        max_hour = self.revenue_helper.get_max_hour_from_transaction_details(target_year, target_month)
+        if max_hour is not None:
+            cutoff_hour = max_hour
+        else:
+            cutoff_hour = current_hour
+        
+        # until_hour dùng cho get_daily_actual_until_hour: lấy từ 00:00 tới <until_hour
+        until_hour = cutoff_hour + 1
+
+
         # Cache để lưu actual_by_sku cho mỗi date (hàm trả về tất cả channel)
         actual_by_sku_cache = {}
         
@@ -222,33 +234,34 @@ class KPISKUCalculator:
                 # Ngày quá khứ: forecast = actual
                 forecast = actual
             elif calendar_date == today:
-                # Ngày hôm nay: tính forecast dựa trên actual đến giờ hiện tại và % revenue theo giờ
-                
-                # Bước 1: Lấy actual của TẤT CẢ SKU từ TẤT CẢ channel (chỉ query 1 lần, cache lại)
                 cache_key = calendar_date
                 if cache_key not in actual_by_sku_cache:
-                    # Data trả về: {channel: {sku: actual}}
-                    # Ví dụ: {'ONLINE_HASAKI': {'SKU001': 1000}, 'OFFLINE_HASAKI': {'SKU001': 2000}, 'ECOM': {'SKU001': 500}}
+                    # Data return: {channel: {sku: actual}}
                     actual_by_sku_cache[cache_key] = self.revenue_helper.get_daily_actual_until_hour_by_sku(
                         target_date=calendar_date,
-                        until_hour=current_hour
+                        until_hour=until_hour
                     )
                 
-                # Bước 2: Lấy actual của SKU này ở channel này
                 actual_until_hour = Decimal('0')
                 if channel in actual_by_sku_cache[cache_key] and sku_name in actual_by_sku_cache[cache_key][channel]:
-                    actual_until_hour = actual_by_sku_cache[cache_key][channel][sku_name]
+                    actual_until_hour = Decimal(str(actual_by_sku_cache[cache_key][channel][sku_name]))
                 
-                # Bước 3: Lấy % revenue của giờ hiện tại ở channel này
-                # Ví dụ: ECOM ở giờ 9h có 5% revenue của cả ngày
-                hour_revenue_pct = hourly_revenue_pct_by_channel.get(channel, {}).get(current_hour, 0.0)
-                
-                # Bước 4: Tính forecast = actual / %rev
-                # Ví dụ: actual = 500, %rev = 0.05 => forecast = 500 / 0.05 = 10000
-                if hour_revenue_pct > 0:
-                    forecast = float(actual_until_hour) / hour_revenue_pct
+                # sum_check += actual_until_hour
+
+                # Tính % revenue CỘNG DỒN từ 0h đến giờ cutoff cho channel này
+                channel_pcts = hourly_revenue_pct_by_channel.get(channel, {})
+                cumulative_pct = Decimal('0')
+                for h in range(cutoff_hour + 1):
+                    pct_h_raw = channel_pcts.get(h, 0.0)
+                    cumulative_pct += Decimal(str(pct_h_raw))
+
+                if cumulative_pct > Decimal('0'):
+                    forecast = actual_until_hour / cumulative_pct
                 else:
-                    forecast = 0.0
+                    forecast = Decimal('0')
+                    
+            else:
+                forecast = Decimal('0')
             
             results.append({
                 'calendar_date': calendar_date,

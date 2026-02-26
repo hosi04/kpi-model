@@ -647,17 +647,14 @@ class RevenueQueryHelper:
         return kpi_day_adjustment_by_date
 
     def get_forecast_by_channel_for_today(
-        self,
-        target_year: int,
-        target_month: int
+        self
     ) -> Dict[str, Decimal]:
         query = f"""
             SELECT
                 channel, 
                 SUM(COALESCE(forecast, 0)) AS forecast_sum 
             FROM hskcdp.kpi_forecast FINAL 
-            WHERE year = {target_year}
-            AND month = {target_month}
+            WHERE calendar_date = today()
             GROUP BY channel
         """
 
@@ -882,8 +879,8 @@ class RevenueQueryHelper:
                 channel, 
                 brand_name,
                 SUM(COALESCE(forecast, 0)) AS forecast_sum
-            FROM hskcdp.kpi_sku FINAL
-            WHERE calendar_date = '{today}'
+            FROM hskcdp.kpi_forecast FINAL
+            WHERE calendar_date = today()
             GROUP BY channel, brand_name
         """
         
