@@ -152,11 +152,39 @@ class KPIBrandCalculator:
 
 
 if __name__ == "__main__":
+    import sys
+    
     constants = Constants()
     calculator = KPIBrandCalculator(constants)
     
-    print("Calculating kpi_brand for month...")
+    target_month = None
+    target_year = constants.KPI_YEAR_2026
+    
+    if len(sys.argv) > 1:
+        i = 1
+        while i < len(sys.argv):
+            if sys.argv[i] == "--target-month" and i + 1 < len(sys.argv):
+                target_month = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
+                target_year = int(sys.argv[i + 1])
+                i += 2
+            else:
+                i += 1
+    
+    if target_month is None:
+        today = date.today()
+        if today.year == constants.KPI_YEAR_2026:
+            target_month = today.month
+        else:
+            target_month = 1
+    
+    if target_month < 1 or target_month > 12:
+        print(f"Error: target_month must be between 1 and 12, received: {target_month}")
+        sys.exit(1)
+    
+    print(f"Calculating kpi_brand for month {target_month}/{target_year}...")
     kpi_brand_data = calculator.calculate_and_save_kpi_brand(
-        target_year=2026,
-        target_month=2
+        target_year=target_year,
+        target_month=target_month
     )

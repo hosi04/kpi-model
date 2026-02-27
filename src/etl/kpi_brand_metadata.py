@@ -88,12 +88,33 @@ class KPIBrandMetadataCalculator:
 
 
 if __name__ == "__main__":
+    import sys
+    
     constants = Constants()
     calculator = KPIBrandMetadataCalculator(constants)
     
-    print("Calculating kpi_brand_metadata for month 1...")
+    target_month = None
+    
+    if len(sys.argv) > 1:
+        i = 1
+        while i < len(sys.argv):
+            if sys.argv[i] == "--target-month" and i + 1 < len(sys.argv):
+                target_month = int(sys.argv[i + 1])
+                i += 2
+            else:
+                i += 1
+    
+    if target_month is None:
+        today = date.today()
+        target_month = today.month
+    
+    if target_month < 1 or target_month > 12:
+        print(f"Error: target_month must be between 1 and 12, received: {target_month}")
+        sys.exit(1)
+    
+    print(f"Calculating kpi_brand_metadata for month {target_month}...")
     metadata_data = calculator.calculate_and_save_kpi_brand_metadata(
-        target_month=2
+        target_month=target_month
     )
     
     print(f"Successfully saved {len(metadata_data)} kpi_brand_metadata records")
