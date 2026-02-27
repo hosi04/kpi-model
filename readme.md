@@ -156,7 +156,10 @@ ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `actual` Nullable(Decimal(40, 15))
 ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
 ALTER TABLE hskcdp.kpi_day_channel ADD COLUMN `kpi_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
 
-CREATE TABLE hskcdp.kpi_day_channel_brand (
+-- DDL để add column forecast cho bảng kpi_channel
+ALTER TABLE hskcdp.kpi_channel ADD COLUMN `forecast` Nullable(Decimal(40, 15)) AFTER `kpi_channel_adjustment`;
+
+CREATE TABLE hskcdp.kpi_brand (
   `calendar_date` Date,
   `year` UInt16,
   `month` UInt8,
@@ -164,21 +167,26 @@ CREATE TABLE hskcdp.kpi_day_channel_brand (
   `date_label` String,
   `channel` String,
   `brand_name` String,
-  `percentage_of_revenue_by_brand` Decimal(40, 15),
+  `pct_of_rev_by_brand` Decimal(40, 15),
   `kpi_brand_initial` Decimal(40, 15),
   `actual` Nullable(Decimal(40, 15)),
   `gap` Nullable(Decimal(40, 15)),
   `kpi_brand_adjustment` Nullable(Decimal(40, 15)),
+  `forecast` Nullable(Decimal(40, 15)),
   `created_at` DateTime DEFAULT now(),
   `updated_at` DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(updated_at)
 ORDER BY (year, month, calendar_date, channel, brand_name)
 SETTINGS index_granularity = 8192;
 
--- DDL để add columns actual, gap, kpi_brand_adjustment nếu bảng đã tồn tại
-ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `actual` Nullable(Decimal(40, 15)) AFTER `kpi_brand_initial`;
-ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
-ALTER TABLE hskcdp.kpi_day_channel_brand ADD COLUMN `kpi_brand_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
+-- DDL để add columns actual, gap, kpi_brand_adjustment, forecast nếu bảng đã tồn tại
+ALTER TABLE hskcdp.kpi_brand ADD COLUMN `actual` Nullable(Decimal(40, 15)) AFTER `kpi_brand_initial`;
+ALTER TABLE hskcdp.kpi_brand ADD COLUMN `gap` Nullable(Decimal(40, 15)) AFTER `actual`;
+ALTER TABLE hskcdp.kpi_brand ADD COLUMN `kpi_brand_adjustment` Nullable(Decimal(40, 15)) AFTER `gap`;
+ALTER TABLE hskcdp.kpi_brand ADD COLUMN `forecast` Nullable(Decimal(40, 15)) AFTER `kpi_brand_adjustment`;
+
+-- DDL để đổi tên cột percentage_of_revenue_by_brand thành pct_of_rev_by_brand
+ALTER TABLE hskcdp.kpi_brand RENAME COLUMN `percentage_of_revenue_by_brand` TO `pct_of_rev_by_brand`;
 
 CREATE TABLE hskcdp.kpi_sku (
   `calendar_date` Date,

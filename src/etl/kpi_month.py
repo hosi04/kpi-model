@@ -16,6 +16,10 @@ class KPIAdjustmentCalculator:
         return self.revenue_helper.get_avg_rev_normal_day_30_days()
     
     def calculate_eom(self, target_year: int, target_month: int) -> Optional[Decimal]:
+        """
+        Hàm **cũ** tính EOM theo logic uplift + remaining days.
+        Giữ lại để tham khảo, không còn được dùng trong pipeline chính.
+        """
         sum_actual = self.revenue_helper.get_daily_actual_sum_for_eom_calculation(target_year, target_month)
         
         if sum_actual == 0:
@@ -577,7 +581,7 @@ class KPIAdjustmentCalculator:
         for month in range(1, target_month + 1):
             kpi_initial = Decimal(str(base_kpi[month]['kpi_initial']))
             
-            eom = self.calculate_eom(self.constants.KPI_YEAR_2026, month)
+            eom = self.revenue_helper.get_forecast_by_month(self.constants.KPI_YEAR_2026, month)
             
             if eom is not None:
                 eoms[month] = eom

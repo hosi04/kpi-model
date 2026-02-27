@@ -100,11 +100,11 @@ class KPIDayCalculator:
                 'month': month,
                 'day': day,
                 'date_label': date_label,
-                'kpi_month': float(kpi_month),
-                'uplift': float(uplift),
-                'weight': float(weight),
-                'total_weight_month': float(total_weight_month),
-                'kpi_day_initial': float(kpi_day_initial)
+                'kpi_month': Decimal(kpi_month),
+                'uplift': Decimal(uplift),
+                'weight': Decimal(weight),
+                'total_weight_month': Decimal(total_weight_month),
+                'kpi_day_initial': Decimal(kpi_day_initial)
             })
         
         return results
@@ -242,6 +242,10 @@ class KPIDayCalculator:
             }
         
         actuals_dict = self.revenue_helper.get_daily_actual_by_month(target_year, target_month)
+
+        forecast_by_day = self.revenue_helper.get_forecast_by_day(target_year, target_month)
+
+
         actuals = {date: Decimal(str(amount)) for date, amount in actuals_dict.items()}
         
         days_with_actual = set()
@@ -290,6 +294,7 @@ class KPIDayCalculator:
         
         for calendar_date, actual_amount in actuals.items():
             if calendar_date in all_days:
+                # Bỏ qua ngày hôm nay, sẽ xử lý riêng ở đoạn sau
                 if calendar_date == today:
                     continue
                 kpi_day_initial = all_days[calendar_date]['kpi_day_initial']
@@ -297,21 +302,13 @@ class KPIDayCalculator:
                 total_gap += gap
                 days_with_actual.add(calendar_date)
         
+        # Xử lý riêng cho ngày hôm nay: dùng forecast_by_day
         if today in all_days:
             kpi_day_initial_today = all_days[today]['kpi_day_initial']
-            if eod_value is not None:
-                gap_today = Decimal(str(eod_value)) - kpi_day_initial_today
-                total_gap += gap_today
-                days_with_actual.add(today)
-                print(f"DEBUG: Gap of today (from EOD) = {gap_today}")
-            else:
-                if today in actuals:
-                    gap_today = actuals[today] - kpi_day_initial_today
-                    total_gap += gap_today
-                    days_with_actual.add(today)
-                else:
-                    gap_today = Decimal('0') - kpi_day_initial_today
-                    total_gap += gap_today
+            gap_today = forecast_by_day.get(today, Decimal('0')) - kpi_day_initial_today
+            total_gap += gap_today
+            days_with_actual.add(today)
+            print(f"DEBUG: Gap of today (from forecast_by_day) = {gap_today}")
         
         for calendar_date, day_data in all_days.items():
             if calendar_date not in days_with_actual and calendar_date < today:
@@ -364,6 +361,7 @@ class KPIDayCalculator:
                 else:
                     weighted_left = uplift
                     if total_weight_left > 0:
+                        print(f"DEBUG: total_gap: {total_gap}")
                         gap_portion = (total_gap * uplift) / total_weight_left
                         kpi_day_adjustment = kpi_day_initial - gap_portion
                     else:
@@ -372,10 +370,11 @@ class KPIDayCalculator:
                     gap = None
             
             if calendar_date == today:
-                eod = eod_value
-                kpi_day_adjustment = eod_value
+                # eod = eod_value
+                eod = forecast_by_day.get(calendar_date, Decimal('0'))
+                kpi_day_adjustment = eod
                 if eod_value is not None:
-                    gap = Decimal(str(eod_value)) - kpi_day_initial
+                    gap = Decimal(str(eod)) - kpi_day_initial
                 else:
                     gap = None
             elif calendar_date < today:
