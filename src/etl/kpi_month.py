@@ -16,10 +16,6 @@ class KPIAdjustmentCalculator:
         return self.revenue_helper.get_avg_rev_normal_day_30_days()
     
     def calculate_eom(self, target_year: int, target_month: int) -> Optional[Decimal]:
-        """
-        Hàm **cũ** tính EOM theo logic uplift + remaining days.
-        Giữ lại để tham khảo, không còn được dùng trong pipeline chính.
-        """
         sum_actual = self.revenue_helper.get_daily_actual_sum_for_eom_calculation(target_year, target_month)
         
         if sum_actual == 0:
@@ -340,7 +336,7 @@ class KPIAdjustmentCalculator:
         if result.result_rows and result.result_rows[0][0] is not None:
             return float(result.result_rows[0][0])
         raise ValueError(f"kpi_initial not found for version '{version}', month {month}, year {target_year}")
-    
+
     def recalculate_version_after_marketing_adjustment(
         self,
         version: str,
@@ -350,8 +346,6 @@ class KPIAdjustmentCalculator:
     ) -> None:
         if target_year is None:
             target_year = self.constants.KPI_YEAR_2026
-        
-        baseline_version = "Thang 1"
         
         print(f"\n=== RECALCULATING VERSION AFTER MARKETING ADJUSTMENT ===")
         print(f"  - Version: {version}")
@@ -405,20 +399,20 @@ class KPIAdjustmentCalculator:
             print(f"  WARNING: Adjusted month ({adjusted_month}) is not the next month ({expected_adjusted_month})")
             print(f"  Continuing calculation with month {adjusted_month}...")
         
-        kpi_initial_version1_adjusted = self.get_kpi_initial_from_version(
-            baseline_version, adjusted_month, target_year
+        # Lấy kpi_initial ban đầu của tháng được chỉnh trong CHÍNH version đang thao tác
+        original_kpi_initial_adjusted = self.get_kpi_initial_from_version(
+            version, adjusted_month, target_year
         )
         
-        adjusted_month_diff = Decimal(str(new_kpi_initial)) - Decimal(str(kpi_initial_version1_adjusted))
+        # Phần chênh lệch giữa kpi_initial mới và kpi_initial ban đầu của tháng đó
+        adjusted_month_diff = Decimal(str(new_kpi_initial)) - Decimal(str(original_kpi_initial_adjusted))
         
-        sum_gap_version1 = self.get_sum_gap_from_version(baseline_version, target_year)
-        
-        total_adjusted_gap = sum_gap_version1 + adjusted_month_diff
-        
+        # Danh sách các tháng còn lại (sau adjusted_month) trong năm
         remaining_months = [m for m in range(adjusted_month + 1, 13)]
 
+        # Chia đều phần chênh lệch cho các tháng còn lại
         if len(remaining_months) > 0:
-            gap_per_remaining_month = total_adjusted_gap / Decimal(str(len(remaining_months)))
+            gap_per_remaining_month = adjusted_month_diff / Decimal(str(len(remaining_months)))
         else:
             gap_per_remaining_month = Decimal('0')
         
@@ -460,12 +454,13 @@ class KPIAdjustmentCalculator:
         
         print(f"\n  - Recalculating kpi_initial for months after month {adjusted_month}:")
         for month in remaining_months:
-            kpi_initial_version1 = self.get_kpi_initial_from_version(
-                baseline_version, month, target_year
+            # Lấy kpi_initial ban đầu của tháng này trong CHÍNH version đang thao tác
+            original_kpi_initial = self.get_kpi_initial_from_version(
+                version, month, target_year
             )
-            kpi_initial_new = float(Decimal(str(kpi_initial_version1)) - gap_per_remaining_month)
+            kpi_initial_new = float(Decimal(str(original_kpi_initial)) - gap_per_remaining_month)
             
-            print(f"    Month {month}: {kpi_initial_version1} - {gap_per_remaining_month} = {kpi_initial_new}")
+            print(f"    Month {month}: {original_kpi_initial} - {gap_per_remaining_month} = {kpi_initial_new}")
             
             get_created_at_query = f"""
                 SELECT created_at
@@ -581,7 +576,7 @@ class KPIAdjustmentCalculator:
         for month in range(1, target_month + 1):
             kpi_initial = Decimal(str(base_kpi[month]['kpi_initial']))
             
-            eom = self.revenue_helper.get_forecast_by_month(self.constants.KPI_YEAR_2026, month)
+            eom = self.calculate_eom(self.constants.KPI_YEAR_2026, month)
             
             if eom is not None:
                 eoms[month] = eom

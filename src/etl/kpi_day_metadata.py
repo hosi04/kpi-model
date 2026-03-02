@@ -57,12 +57,12 @@ class KPIDayMetadataCalculator:
         
         query = f"""
             SELECT 
-                date_label,
+                priority_label AS date_label,
                 COUNT(*) as so_ngay
             FROM dim_date
             WHERE year = {target_year}
               AND month = {target_month}
-              AND date_label IN ({','.join([f"'{dl}'" for dl in date_labels])})
+              AND priority_label IN ({','.join([f"'{dl}'" for dl in date_labels])})
               AND NOT (
                   (month = 6 AND day = 6) OR
                   (month = 9 AND day = 9) OR
@@ -354,4 +354,4 @@ if __name__ == "__main__":
         target_month=target_month
     )
     
-    print(f"Successfully saved {len(metadata)} metadata records")
+    print(f"Successfully saved {len(metadata) + 1} metadata records")

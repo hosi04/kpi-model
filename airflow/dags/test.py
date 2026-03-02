@@ -66,6 +66,39 @@ with DAG(
         bash_command=f"{PYTHON_CMD} -m src.etl.kpi_month --create-version-manually --source-month {{{{ var.value.get('kpi_month_source_month', '1') }}}} --force",
     )
 
+# Or pass via conf when triggering:
+# {
+#   "kpi_month_recalc_version": "Thang 2",
+#   "kpi_month_recalc_month": "2",
+#   "kpi_month_new_kpi_initial": "300"
+# }
+with DAG(
+    dag_id="kpi_month_recalculate_after_marketing",
+    start_date=datetime(2026, 1, 1),
+    schedule=None,
+    default_args=default_args,
+    catchup=False,
+    tags=["cdp-kpi-models", "manual", "kpi_month", "recalculate_after_marketing"],
+) as dag:
+    kpi_month_recalculate_after_marketing_task = BashOperator(
+        task_id="kpi_month_recalculate_after_marketing_task",
+        bash_command=(
+            f'{PYTHON_CMD} -m src.etl.kpi_month '
+            f'--recalculate-version "{{{{ dag_run.conf.get(\'kpi_month_recalc_version\', \'\') }}}}" '
+            f'--month {{{{ dag_run.conf.get("kpi_month_recalc_month", "") }}}} '
+            f'--new-kpi-initial {{{{ dag_run.conf.get("kpi_month_new_kpi_initial", "") }}}}'
+        ),
+    )
+
+    trigger_kpi_month_after_recalc = TriggerDagRunOperator(
+        task_id="trigger_kpi_month_after_recalc",
+        trigger_dag_id="kpi_month",
+        wait_for_completion=False,
+        reset_dag_run=True,
+    )
+
+    kpi_month_recalculate_after_marketing_task >> trigger_kpi_month_after_recalc
+
 
 # Or pass via conf when triggering: {"kpi_day_metadata_target_month": "2"}
 with DAG(

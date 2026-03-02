@@ -30,22 +30,18 @@ class KPIDayCalculator:
                 md.uplift,
                 md.weight,
                 md.total_weight_month
-            FROM dim_date d
+            FROM hskcdp.dim_date AS d
             INNER JOIN (
                 SELECT 
                     year,
                     month,
-                    kpi_initial,
-                    row_number() OVER (
-                        PARTITION BY year, month, version
-                        ORDER BY updated_at DESC
-                    ) AS rn
-                FROM hskcdp.kpi_month
-                WHERE version = '{target_version}'
+                    kpi_initial
+                FROM hskcdp.kpi_month FINAL
+                WHERE year = {target_year}
+                  AND version = '{target_version}'
             ) AS m
                 ON d.year = m.year 
                 AND d.month = m.month
-                AND m.rn = 1
             INNER JOIN (
                 SELECT 
                     year,
@@ -53,17 +49,12 @@ class KPIDayCalculator:
                     date_label,
                     uplift,
                     weight,
-                    total_weight_month,
-                    row_number() OVER (
-                        PARTITION BY year, month, date_label
-                        ORDER BY updated_at DESC
-                    ) AS rn
-                FROM hskcdp.kpi_day_metadata
+                    total_weight_month
+                FROM hskcdp.kpi_day_metadata FINAL
             ) AS md
                 ON d.year = md.year
                 AND d.month = md.month
                 AND d.priority_label = md.date_label
-                AND md.rn = 1
             WHERE d.year = {target_year}
               AND d.month = {target_month}
               AND NOT (
@@ -128,17 +119,12 @@ class KPIDayCalculator:
                     SELECT 
                         year,
                         month,
-                        kpi_initial,
-                        row_number() OVER (
-                            PARTITION BY year, month, version
-                            ORDER BY updated_at DESC
-                        ) AS rn
-                    FROM hskcdp.kpi_month
+                        kpi_initial
+                    FROM hskcdp.kpi_month FINAL
                     WHERE year = {year}
                       AND month = {month}
                       AND version = '{target_version}'
                 )
-                WHERE rn = 1
                 LIMIT 1
             """
             kpi_month_result = self.client.query(kpi_month_query)
@@ -427,17 +413,12 @@ class KPIDayCalculator:
                     SELECT 
                         year,
                         month,
-                        kpi_initial,
-                        row_number() OVER (
-                            PARTITION BY year, month, version
-                            ORDER BY updated_at DESC
-                        ) AS rn
-                    FROM hskcdp.kpi_month
+                        kpi_initial
+                    FROM hskcdp.kpi_month FINAL
                     WHERE year = {year}
                       AND month = {month}
                       AND version = '{target_version}'
                 )
-                WHERE rn = 1
                 LIMIT 1
             """
             kpi_month_result = self.client.query(kpi_month_query)
