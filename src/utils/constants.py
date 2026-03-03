@@ -10,7 +10,7 @@ class Constants:
     KPI_TOTAL_2026: Decimal = Decimal('8000000000000')
 
     DATE_LABELS = [
-                'Normal day',  # Baseline
+                'Normal day',
                 'Double Day',
                 'Double Day +1',
                 'Double Day -1',
@@ -19,7 +19,13 @@ class Constants:
                 'Middle of month -1',
                 'Pay Day',
                 'Pay Day +1',
-                'Pay Day -1'
+                'Pay Day -1',
+                'Tet Duong Lich', 
+                'Tet Am Lich',
+                'Tet Am Lich +1',
+                'Tet Am Lich +2',
+                'Tet Am Lich +3',
+                'Quoc Te Phu Nu'
             ]   
 
     ALL_CHANNELS = ['ONLINE_HASAKI', 'OFFLINE_HASAKI', 'ECOM']
