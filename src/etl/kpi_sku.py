@@ -286,13 +286,44 @@ class KPISKUCalculator:
         
         # Lấy SKU mới: xuất hiện lần đầu trong tháng hiện tại (giống logic brand)
         new_skus = self.revenue_helper.get_new_sku_this_month()
-        
-        # Xử lý SKU mới
+
+        # Lấy danh sách (brand_name, sku) có trong metadata kpi_sku_metadata
+        skus_in_metadata = set()
+        metadata_query = f"""
+            SELECT DISTINCT brand_name, CAST(sku AS String) AS sku
+            FROM hskcdp.kpi_sku_metadata FINAL
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        metadata_result = self.client.query(metadata_query)
+        for row in metadata_result.result_rows:
+            brand_name_meta = str(row[0])
+            sku_meta = str(row[1])
+            skus_in_metadata.add((brand_name_meta, sku_meta))
+
+        # Lấy danh sách (brand_name, sku) có actual trong tháng target
+        skus_with_actual = set()
+        for calendar_date, channels in actual_by_date.items():
+            for channel_name, brands in channels.items():
+                for brand_name_actual, skus in brands.items():
+                    for sku_actual in skus.keys():
+                        skus_with_actual.add((brand_name_actual, sku_actual))
+
+        # SKU cần xử lý thêm: có actual nhưng không có trong metadata và không phải SKU mới
+        skus_to_process = skus_with_actual - skus_in_metadata - new_skus
+
+        # Gộp cả SKU mới và SKU cần xử lý thêm, xử lý chung giống logic SKU mới
+        skus_for_new_logic = set()
         if new_skus:
+            skus_for_new_logic |= new_skus
+        if skus_to_process:
+            skus_for_new_logic |= skus_to_process
+
+        if skus_for_new_logic:
             new_sku_records = self.get_new_sku_records(
                 target_year=target_year,
                 target_month=target_month,
-                new_skus=new_skus,
+                new_skus=skus_for_new_logic,
                 actual_by_date=actual_by_date,
                 today=today,
                 hourly_revenue_pct_by_channel=hourly_revenue_pct_by_channel,
@@ -359,9 +390,14 @@ class KPISKUCalculator:
                 # Lấy actual revenue
                 actual = Decimal(str(actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, {}).get(sku_name, 0.0)))
                 
-                # Logic cho SKU mới
+                # Logic cho SKU mới: kpi_sku_initial = 0, không tạo record cho ngày tương lai
                 kpi_sku_initial = Decimal('0')
-                kpi_sku_adjustment = actual
+
+                if calendar_date < today:
+                    kpi_sku_adjustment = actual
+                else:
+                    kpi_sku_adjustment = None
+
                 gap = actual
                 sku_classification = 'New'
                 revenue_share_in_class = Decimal('0')
