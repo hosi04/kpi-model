@@ -70,11 +70,13 @@ class KPISKUCalculator:
                         sku, 
                         sku_classification, 
                         revenue_share_in_class 
-                    FROM hskcdp.dim_sku 
+                    FROM hskcdp.kpi_sku_metadata FINAL
+                    WHERE year = {target_year}
+                      AND month = {target_month}
                 ) AS s 
-                ON s.brand_name = b.brand_name
+                    ON s.brand_name = b.brand_name
                 LEFT JOIN ecom_products AS ep 
-                ON s.sku = ep.sku
+                    ON s.sku = ep.sku
             ),
             brand_sku_stats AS (
                 SELECT
@@ -265,6 +267,8 @@ class KPISKUCalculator:
             
             results.append({
                 'calendar_date': calendar_date,
+                'year': calendar_date.year,
+                'month': calendar_date.month,
                 'date_label': date_label,
                 'channel': channel,
                 'brand_name': brand_name,
@@ -272,15 +276,147 @@ class KPISKUCalculator:
                 'sku_classification': sku_classification,
                 'category_name': category_name,
                 'revenue_share_in_class': revenue_share_in_class,
-                'kpi_day_channel_brand': kpi_day_channel_brand,
-                'kpi_brand': float(kpi_brand),
-                'revenue_by_group_sku': float(revenue_by_group_sku),
+                # Bỏ 3 cột: 'kpi_day_channel_brand', 'kpi_brand', 'revenue_by_group_sku'
                 'kpi_sku_initial': float(kpi_sku_initial),
                 'actual': actual,
                 'gap': gap,
                 'kpi_sku_adjustment': kpi_sku_adjustment,
                 'forecast': forecast
             })
+        
+        # Lấy SKU mới: xuất hiện lần đầu trong tháng hiện tại (giống logic brand)
+        new_skus = self.revenue_helper.get_new_sku_this_month()
+        
+        # Xử lý SKU mới
+        if new_skus:
+            new_sku_records = self.get_new_sku_records(
+                target_year=target_year,
+                target_month=target_month,
+                new_skus=new_skus,
+                actual_by_date=actual_by_date,
+                today=today,
+                hourly_revenue_pct_by_channel=hourly_revenue_pct_by_channel,
+                until_hour=until_hour,
+                actual_by_sku_cache=actual_by_sku_cache
+            )
+            results.extend(new_sku_records)
+        
+        return results
+    
+    def get_new_sku_records(
+        self,
+        target_year: int,
+        target_month: int,
+        new_skus: set,
+        actual_by_date: Dict,
+        today: date,
+        hourly_revenue_pct_by_channel: Dict,
+        until_hour: int,
+        actual_by_sku_cache: Dict
+    ) -> List[Dict]:
+        """
+        Tạo records cho SKU mới (xuất hiện lần đầu trong tháng hiện tại)
+        """
+        results = []
+        
+        # Lấy category_name từ raw_ecom_products
+        ecom_products_query = """
+            SELECT sku, category_name
+            FROM hskcdp.raw_ecom_products FINAL
+        """
+        ecom_result = self.client.query(ecom_products_query)
+        category_by_sku = {}
+        for row in ecom_result.result_rows:
+            sku = str(row[0])
+            raw_category = str(row[1]) if row[1] else None
+            if raw_category is None:
+                category_name = ''
+            else:
+                cleaned = str(raw_category).strip()
+                if cleaned.lower() == 'none':
+                    category_name = ''
+                else:
+                    category_name = cleaned
+            category_by_sku[sku] = category_name
+        
+        for brand_name, sku_name in new_skus:
+            # Lấy tất cả (calendar_date, channel) từ kpi_brand cho brand này
+            brand_query = f"""
+                SELECT DISTINCT calendar_date, date_label, channel
+                FROM hskcdp.kpi_brand FINAL
+                WHERE year = {target_year}
+                  AND month = {target_month}
+                  AND brand_name = '{brand_name.replace("'", "''")}'
+                ORDER BY calendar_date, channel
+            """
+            brand_result = self.client.query(brand_query)
+            
+            for row in brand_result.result_rows:
+                calendar_date = row[0]
+                date_label = str(row[1])
+                channel = str(row[2])
+                
+                # Lấy actual revenue
+                actual = Decimal(str(actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, {}).get(sku_name, 0.0)))
+                
+                # Logic cho SKU mới
+                kpi_sku_initial = Decimal('0')
+                kpi_sku_adjustment = actual
+                gap = actual
+                sku_classification = 'New'
+                revenue_share_in_class = Decimal('0')
+                category_name = category_by_sku.get(sku_name, '')
+                
+                # Tính forecast
+                forecast = None
+                if calendar_date < today:
+                    # Ngày quá khứ: forecast = actual
+                    forecast = actual
+                elif calendar_date == today:
+                    cache_key = calendar_date
+                    if cache_key not in actual_by_sku_cache:
+                        actual_by_sku_cache[cache_key] = self.revenue_helper.get_daily_actual_until_hour_by_sku(
+                            target_date=calendar_date,
+                            until_hour=until_hour
+                        )
+                    
+                    actual_until_hour = Decimal('0')
+                    if channel in actual_by_sku_cache[cache_key] and sku_name in actual_by_sku_cache[cache_key][channel]:
+                        actual_until_hour = Decimal(str(actual_by_sku_cache[cache_key][channel][sku_name]))
+                    
+                    # Tính % revenue CỘNG DỒN từ 0h đến giờ cutoff cho channel này
+                    channel_pcts = hourly_revenue_pct_by_channel.get(channel, {})
+                    cumulative_pct = Decimal('0')
+                    # until_hour = cutoff_hour + 1, nên cutoff_hour = until_hour - 1
+                    cutoff_hour_for_forecast = until_hour - 1
+                    for h in range(cutoff_hour_for_forecast + 1):
+                        pct_h_raw = channel_pcts.get(h, 0.0)
+                        cumulative_pct += Decimal(str(pct_h_raw))
+                    
+                    if cumulative_pct > Decimal('0'):
+                        forecast = actual_until_hour / cumulative_pct
+                    else:
+                        forecast = Decimal('0')
+                else:
+                    forecast = Decimal('0')
+                
+                results.append({
+                    'calendar_date': calendar_date,
+                    'year': calendar_date.year,
+                    'month': calendar_date.month,
+                    'date_label': date_label,
+                    'channel': channel,
+                    'brand_name': brand_name,
+                    'sku': sku_name,
+                    'sku_classification': sku_classification,
+                    'category_name': category_name,
+                    'revenue_share_in_class': revenue_share_in_class,
+                    'kpi_sku_initial': float(kpi_sku_initial),
+                    'actual': actual,
+                    'gap': gap,
+                    'kpi_sku_adjustment': kpi_sku_adjustment,
+                    'forecast': forecast
+                })
         
         return results
     
@@ -295,6 +431,8 @@ class KPISKUCalculator:
             
             data.append([
                 row['calendar_date'],
+                row['year'],
+                row['month'],
                 row['date_label'],
                 row['channel'],
                 row['brand_name'],
@@ -302,9 +440,6 @@ class KPISKUCalculator:
                 row['sku_classification'],
                 row['category_name'],
                 safe_float(row['revenue_share_in_class']),
-                safe_float(row['kpi_day_channel_brand']),
-                safe_float(row['kpi_brand']),
-                safe_float(row['revenue_by_group_sku']),
                 safe_float(row['kpi_sku_initial']),
                 safe_float(row.get('actual')),
                 safe_float(row.get('gap')),
@@ -315,10 +450,10 @@ class KPISKUCalculator:
             ])
         
         columns = [
-            'calendar_date', 'date_label',
+            'calendar_date', 'year', 'month', 'date_label',
             'channel', 'brand_name', 'sku', 'sku_classification', 'category_name',
-            'revenue_share_in_class', 'kpi_day_channel_brand', 'kpi_brand',
-            'revenue_by_group_sku', 'kpi_sku_initial',
+            'revenue_share_in_class',
+            'kpi_sku_initial',
             'actual', 'gap', 'kpi_sku_adjustment', 'forecast',
             'created_at', 'updated_at'
         ]

@@ -696,6 +696,36 @@ class RevenueQueryHelper:
         
         return revenue_by_brand
     
+    def get_brands_with_revenue_in_month(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> set:
+        """
+        Lấy danh sách brand có revenue > 0 trong tháng cụ thể
+        
+        Args:
+            target_year: Năm target
+            target_month: Tháng target
+            
+        Returns:
+            Set các brand_name có revenue > 0 trong tháng đó
+        """
+        query = f"""
+            SELECT DISTINCT brand_name
+            FROM hskcdp.object_sql_transaction_details FINAL
+            WHERE toYear(created_at) = {target_year}
+              AND toMonth(created_at) = {target_month}
+              AND status NOT IN ('Canceled', 'Cancel')
+            GROUP BY brand_name
+            HAVING SUM(COALESCE(total_amount, 0)) > 0
+        """
+        
+        result = self.client.query(query)
+        brands = {str(row[0]) for row in result.result_rows}
+        
+        return brands
+
     # KPI BRAND RELATED QUERIES
     
     def get_kpi_brand_with_brand_metadata(
@@ -754,7 +784,8 @@ class RevenueQueryHelper:
                     brand_name,
                     per_of_rev_by_brand_adj
                 FROM hskcdp.kpi_brand_metadata FINAL
-                WHERE month = {target_month}
+                WHERE year = {target_year}
+                  AND month = {target_month}
             ) AS b
             WHERE c.year = {target_year}
               AND c.month = {target_month}
@@ -869,6 +900,55 @@ class RevenueQueryHelper:
         
         return kpi_day_channel_adjustment_by_date
     
+    def get_all_date_channel_combinations(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> List[Dict]:
+        """
+        Lấy tất cả các combination (calendar_date, channel) từ kpi_channel cho tháng
+        
+        Args:
+            target_year: Năm target
+            target_month: Tháng target
+            
+        Returns:
+            List of dicts chứa calendar_date, year, month, day, date_label, channel
+        """
+        query = f"""
+            SELECT DISTINCT
+                calendar_date,
+                year,
+                month,
+                day,
+                date_label,
+                channel
+            FROM hskcdp.kpi_channel FINAL
+            WHERE year = {target_year}
+              AND month = {target_month}
+              AND NOT (
+                  (month = 6 AND day BETWEEN 5 AND 7) OR
+                  (month = 9 AND day BETWEEN 8 AND 10) OR
+                  (month = 11 AND day BETWEEN 10 AND 12) OR
+                  (month = 12 AND day BETWEEN 11 AND 13)
+              )
+            ORDER BY calendar_date, channel
+        """
+        
+        result = self.client.query(query)
+        combinations = []
+        for row in result.result_rows:
+            combinations.append({
+                'calendar_date': row[0],
+                'year': int(row[1]),
+                'month': int(row[2]),
+                'day': int(row[3]),
+                'date_label': str(row[4]),
+                'channel': str(row[5])
+            })
+        
+        return combinations
+    
     def get_forecast_by_brand_for_today(
         self
     ) -> Dict[str, Dict[str, Decimal]]:
@@ -919,7 +999,39 @@ class RevenueQueryHelper:
             new_brands.add(brand_name)
         
         return new_brands
-
+    
+    # KPI SKU METADATA RELATED QUERIES
+    
+    def get_skus_with_revenue_in_month(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> set:
+        """
+        Lấy danh sách (brand_name, sku) có revenue > 0 trong tháng cụ thể
+        
+        Args:
+            target_year: Năm target
+            target_month: Tháng target
+            
+        Returns:
+            Set các tuple (brand_name, sku) có revenue > 0 trong tháng đó
+        """
+        query = f"""
+            SELECT DISTINCT brand_name, CAST(sku AS String) AS sku
+            FROM hskcdp.object_sql_transaction_details FINAL
+            WHERE toYear(created_at) = {target_year}
+              AND toMonth(created_at) = {target_month}
+              AND status NOT IN ('Canceled', 'Cancel')
+            GROUP BY brand_name, sku
+            HAVING SUM(COALESCE(total_amount, 0)) > 0
+        """
+        
+        result = self.client.query(query)
+        skus = {(str(row[0]), str(row[1])) for row in result.result_rows}
+        
+        return skus
+    
     # KPI SKU RELATED QUERIES
     
     def get_actual_by_sku_brand_channel_and_date(
@@ -988,3 +1100,31 @@ class RevenueQueryHelper:
             return Decimal(str(result.result_rows[0][0]))
 
         return None
+
+    def get_new_sku_this_month(
+        self
+    ) -> Set[tuple]:
+        """
+        Lấy danh sách (brand_name, sku) xuất hiện lần đầu trong tháng hiện tại
+        Returns: Set các tuple (brand_name, sku)
+        """
+        query = """
+            SELECT 
+                brand_name,
+                CAST(sku AS String) AS sku,
+                MIN(created_at) AS first_sale_date
+            FROM hskcdp.object_sql_transaction_details FINAL
+            WHERE status NOT IN ('Canceled', 'Cancel')
+            GROUP BY brand_name, sku
+            HAVING first_sale_date >= toStartOfMonth(today())
+        """
+
+        result = self.client.query(query)
+
+        new_skus = set()
+        for row in result.result_rows:
+            brand_name = str(row[0])
+            sku = str(row[1])
+            new_skus.add((brand_name, sku))
+        
+        return new_skus

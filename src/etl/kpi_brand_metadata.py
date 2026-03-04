@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict
 from src.utils.clickhouse_client import get_client
 from src.utils.constants import Constants
@@ -14,16 +14,33 @@ class KPIBrandMetadataCalculator:
     
     def calculate_kpi_brand_metadata(
         self,
+        target_year: int,
         target_month: int
     ) -> List[Dict]:
-        revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months()
-        
-        new_brand_this_month = self.revenue_helper.get_new_brand_this_month()
+        # Lấy tổng revenue của 3 tháng gần nhất cho tất cả brand
+        revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months() 
 
+        # Tính tháng gần nhất (tháng đầu tiên trong 3 tháng)
+        # Ví dụ: target_month = 3 → tháng gần nhất = 2
+        if target_month == 1:
+            # Nếu là tháng 1, tháng gần nhất là tháng 12 năm trước
+            recent_month = 12
+            recent_year = target_year - 1
+        else:
+            recent_month = target_month - 1
+            recent_year = target_year
+        
+        # Lấy brand có revenue trong tháng gần nhất
+        brands_in_recent_month = self.revenue_helper.get_brands_with_revenue_in_month(
+            target_year=recent_year,
+            target_month=recent_month
+        )
+
+        # Filter: chỉ giữ brand có revenue > 0 VÀ có revenue trong tháng gần nhất
         positive_revenue_brands = {
-            brand_name: (0 if brand_name in new_brand_this_month else revenue) 
+            brand_name: revenue 
             for brand_name, revenue in revenue_by_brand.items() 
-            if revenue > 0 or brand_name in new_brand_this_month
+            if revenue > 0 and brand_name in brands_in_recent_month
         }
         
         total_revenue = sum(positive_revenue_brands.values())
@@ -40,6 +57,7 @@ class KPIBrandMetadataCalculator:
             per_of_rev_by_brand_adj = per_of_rev_by_brand
             
             results.append({
+                'year': target_year,
                 'month': target_month,
                 'brand_name': brand_name,
                 'per_of_rev_by_brand': float(per_of_rev_by_brand),
@@ -58,6 +76,7 @@ class KPIBrandMetadataCalculator:
         data = []
         for row in metadata_data:
             data.append([
+                row['year'],
                 row['month'],
                 row['brand_name'],
                 row['per_of_rev_by_brand'],
@@ -68,7 +87,7 @@ class KPIBrandMetadataCalculator:
             ])
         
         columns = [
-            'month', 'brand_name', 'per_of_rev_by_brand', 'pic', 'per_of_rev_by_brand_adj',
+            'year', 'month', 'brand_name', 'per_of_rev_by_brand', 'pic', 'per_of_rev_by_brand_adj',
             'created_at', 'updated_at'
         ]
         
@@ -76,9 +95,11 @@ class KPIBrandMetadataCalculator:
     
     def calculate_and_save_kpi_brand_metadata(
         self,
+        target_year: int,
         target_month: int
     ) -> List[Dict]:
         metadata_data = self.calculate_kpi_brand_metadata(
+            target_year=target_year,
             target_month=target_month
         )
         
@@ -94,12 +115,16 @@ if __name__ == "__main__":
     calculator = KPIBrandMetadataCalculator(constants)
     
     target_month = None
+    target_year = constants.KPI_YEAR_2026
     
     if len(sys.argv) > 1:
         i = 1
         while i < len(sys.argv):
             if sys.argv[i] == "--target-month" and i + 1 < len(sys.argv):
                 target_month = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
+                target_year = int(sys.argv[i + 1])
                 i += 2
             else:
                 i += 1
@@ -112,8 +137,9 @@ if __name__ == "__main__":
         print(f"Error: target_month must be between 1 and 12, received: {target_month}")
         sys.exit(1)
     
-    print(f"Calculating kpi_brand_metadata for month {target_month}...")
+    print(f"Calculating kpi_brand_metadata for month {target_month}/{target_year}...")
     metadata_data = calculator.calculate_and_save_kpi_brand_metadata(
+        target_year=target_year,
         target_month=target_month
     )
     
