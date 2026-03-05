@@ -50,37 +50,6 @@ class RevenueQueryHelper:
             return Decimal(str(result.result_rows[0][0]))
         else:
             return Decimal('0')
-
-    def get_daily_actual_sum_for_eom_calculation(self, target_year: int, target_month: int) -> Decimal:
-        query = f"""
-            SELECT 
-                SUM(COALESCE(total_amount, 0)) as sum_actual
-            FROM hskcdp.object_sql_transaction_details FINAL
-            WHERE toYear(created_at) = {target_year}
-              AND toMonth(created_at) = {target_month}
-              AND toDate(created_at) < today()
-              AND status NOT IN ('Canceled', 'Cancel')
-        """
-        
-        result = self.client.query(query)
-        if result.result_rows and result.result_rows[0][0] is not None:
-            return Decimal(str(result.result_rows[0][0]))
-        else:
-            return Decimal('0')
-    
-    def get_actual_dates(self, target_year: int, target_month: int) -> Set[date]:
-        query = f"""
-            SELECT 
-                DISTINCT toDate(created_at) as calendar_date
-            FROM hskcdp.object_sql_transaction_details FINAL
-            WHERE toYear(created_at) = {target_year}
-                AND toMonth(created_at) = {target_month}
-                AND status NOT IN ('Canceled', 'Cancel')
-        """
-        
-        result = self.client.query(query)
-        actual_dates = {row[0] for row in result.result_rows}
-        return actual_dates
     
     def get_actual_days_by_label(
         self, 
