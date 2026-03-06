@@ -34,6 +34,11 @@ class KPIBrandCalculator:
 
         forecast_by_brand_today = self.revenue_helper.get_forecast_by_brand_for_today()
 
+        forecast_top_down_brand = self.revenue_helper.get_forecast_top_down_from_channel(
+            target_year=target_year,
+            target_month=target_month
+        )
+        
         new_brand_this_month = self.revenue_helper.get_new_brand_this_month()
         
         results = []
@@ -73,9 +78,11 @@ class KPIBrandCalculator:
             if calendar_date < today:
                 forecast = actual
             elif calendar_date == today:
+                # forecast bottom-up
                 forecast = forecast_by_brand_today.get(channel, {}).get(brand_name, Decimal('0'))
             else:
-                forecast = Decimal('0')
+                # forecast top-down
+                forecast = forecast_top_down_brand.get(calendar_date, {}).get(channel, Decimal("0")) * per_of_rev_by_brand_adj
 
             results.append({
                 'calendar_date': calendar_date,
@@ -186,8 +193,10 @@ class KPIBrandCalculator:
                 if calendar_date < today:
                     forecast = actual
                 elif calendar_date == today:
+                    # forecast bottom-up
                     forecast = forecast_by_brand_today.get(channel, {}).get(brand_name, Decimal('0'))
                 else:
+                    # forecast top-down
                     forecast = Decimal('0')
                 
                 results.append({

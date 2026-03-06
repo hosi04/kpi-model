@@ -146,7 +146,6 @@ class KPISKUCalculator:
         
         # Lấy % revenue theo giờ và channel để tính forecast
         hourly_revenue_pct_by_channel = self.revenue_helper.get_hourly_revenue_percentage_by_channel(days_back=30)
-        
 
         # Lấy giờ lớn nhất có transaction trong ngày hôm nay (nếu có)
         max_hour = self.revenue_helper.get_max_hour_from_transaction_details(target_year, target_month)
@@ -154,6 +153,11 @@ class KPISKUCalculator:
             cutoff_hour = max_hour
         else:
             cutoff_hour = current_hour
+
+        forecast_top_down_sku = self.revenue_helper.get_forecast_top_down_from_brand(
+            target_year=target_year,
+            target_month=target_month
+        )
         
         # until_hour dùng cho get_daily_actual_until_hour: lấy từ 00:00 tới <until_hour
         until_hour = cutoff_hour + 1
@@ -168,15 +172,12 @@ class KPISKUCalculator:
             channel = str(row[2])
             brand_name = str(row[3])
             
-            kpi_brand_initial = safe_decimal(row[4])
             kpi_brand_adjustment = safe_decimal(row[5])
             sku_name = str(row[6])
             sku_classification = str(row[7])
             revenue_share_in_class = safe_decimal(row[8])
             hero_count = int(row[9]) if row[9] is not None else 0
             core_count = int(row[10]) if row[10] is not None else 0
-            kpi_brand = safe_decimal(row[11])
-            revenue_by_group_sku = safe_decimal(row[12])
             kpi_sku_initial = safe_decimal(row[13])
             raw_category = str(row[14])
             if raw_category is None:
@@ -192,7 +193,6 @@ class KPISKUCalculator:
             # Với Tail: kpi_sku_initial = 0 cho tất cả các ngày
             if sku_classification == 'Tail':
                 kpi_sku_initial = Decimal('0')
-                revenue_by_group_sku = Decimal('0')
 
             if calendar_date < today:
                 kpi_sku_adjustment = actual
@@ -227,9 +227,6 @@ class KPISKUCalculator:
                 else:
                     kpi_sku_adjustment = 0.0
             
-            # Giữ các cột cũ để backward compatibility
-            kpi_day_channel_brand = float(kpi_brand_initial)
-            
             # Tính forecast cho ngày hôm nay
             forecast = None
             if calendar_date < today:
@@ -263,7 +260,30 @@ class KPISKUCalculator:
                     forecast = Decimal('0')
                     
             else:
-                forecast = Decimal('0')
+                # forecast top-down
+                if hero_count > 0 and core_count > 0:
+                    if sku_classification == 'Hero':
+                        class_pct = Decimal('0.85')
+                    elif sku_classification == 'Core':
+                        class_pct = Decimal('0.15')
+                    else:  # Tail
+                        class_pct = Decimal('0')
+                elif hero_count > 0 and core_count == 0:
+                    if sku_classification == 'Hero':
+                        class_pct = Decimal('1.00')
+                    else:  # Core hoặc Tail
+                        class_pct = Decimal('0')
+                else:
+                    if sku_classification == 'Hero':
+                        class_pct = Decimal('0.85')
+                    elif sku_classification == 'Core':
+                        class_pct = Decimal('0.15')
+                    else:  # Tail
+                        class_pct = Decimal('0')
+
+                rev_distribution = revenue_share_in_class / Decimal("100")
+
+                forecast = forecast_top_down_sku.get(calendar_date, {}).get(channel, {}).get(brand_name, Decimal("0")) * rev_distribution * class_pct
             
             results.append({
                 'calendar_date': calendar_date,
@@ -276,7 +296,6 @@ class KPISKUCalculator:
                 'sku_classification': sku_classification,
                 'category_name': category_name,
                 'revenue_share_in_class': revenue_share_in_class,
-                # Bỏ 3 cột: 'kpi_day_channel_brand', 'kpi_brand', 'revenue_by_group_sku'
                 'kpi_sku_initial': float(kpi_sku_initial),
                 'actual': actual,
                 'gap': gap,
@@ -305,7 +324,7 @@ class KPISKUCalculator:
         skus_with_actual = set()
         for calendar_date, channels in actual_by_date.items():
             for channel_name, brands in channels.items():
-                for brand_name_actual, skus in brands.items():
+                for brand_name_actual, skus in brands.items():  
                     for sku_actual in skus.keys():
                         skus_with_actual.add((brand_name_actual, sku_actual))
 

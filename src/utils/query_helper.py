@@ -636,6 +636,25 @@ class RevenueQueryHelper:
 
         return forecast_by_channel
     
+    def get_forecast_top_down_from_day(self, target_year: int, target_month: int) -> Dict[str, Decimal]:
+        query = f"""
+            SELECT
+                calendar_date,
+                eod
+            FROM hskcdp.kpi_day FINAL
+            WHERE year = {target_year}
+            AND month = {target_month}
+            AND calendar_date > today()
+        """
+
+        result = self.client.query(query)
+
+        forecast_top_down_channel = {}
+        for calendar_date, eod in result.result_rows:
+            forecast_top_down_channel[str(calendar_date)] = Decimal(eod)
+
+        return forecast_top_down_channel
+
     # KPI BRAND METADATA RELATED QUERIES
     
     def get_revenue_by_brand_last_3_months(self) -> Dict[str, float]:
@@ -947,6 +966,29 @@ class RevenueQueryHelper:
 
         return forecast_by_channel_brand
     
+    def get_forecast_top_down_from_channel(self, target_year:int, target_month: int) -> Dict[date, Dict[str, Decimal]]:
+        query = f"""
+            SELECT
+                calendar_date, 
+                channel, 
+                SUM(forecast) as sum_forecast
+            FROM hskcdp.kpi_channel FINAL
+            WHERE year = {target_year}
+            AND month = {target_month}
+            AND calendar_date > today()
+            GROUP BY calendar_date, channel 
+        """
+
+        result = self.client.query(query)
+
+        forecast_top_down_brand = {}
+        for calendar_date, channel, sum_forecast in result.result_rows:
+            if calendar_date not in forecast_top_down_brand:
+                forecast_top_down_brand[calendar_date] = {}
+            forecast_top_down_brand[calendar_date][channel] = Decimal(sum_forecast)
+        
+        return forecast_top_down_brand
+
     def get_new_brand_this_month(
         self
     ) -> Set[str]:
@@ -1058,10 +1100,15 @@ class RevenueQueryHelper:
     ) -> Optional[Decimal]:
         query = f"""
             SELECT
-                SUM(COALESCE(forecast, 0)) AS eom_forecast
-            FROM hskcdp.kpi_forecast FINAL
-            WHERE year = {target_year}
-              AND month = {target_month}
+                SUM(
+                    COALESCE(f.forecast, 0) +
+                    IF(d.calendar_date > today(), COALESCE(d.eod, 0), 0)
+                ) AS eom_forecast
+            FROM hskcdp.kpi_forecast f FINAL
+            LEFT JOIN hskcdp.kpi_day d
+                ON f.calendar_date = d.calendar_date
+            WHERE f.year = {target_year}
+            AND f.month = {target_month}
         """
         result = self.client.query(query)
 
@@ -1097,3 +1144,30 @@ class RevenueQueryHelper:
             new_skus.add((brand_name, sku))
         
         return new_skus
+    
+
+    def get_forecast_top_down_from_brand(self, target_year: int, target_month: int) -> Dict[date, Dict[str, Dict[str, Decimal]]]:
+        query = f"""
+            SELECT
+                calendar_date, 
+                channel, 
+                brand_name, 
+                SUM(forecast) AS sum_forecast
+            FROM hskcdp.kpi_brand FINAL
+            WHERE year = {target_year}
+            AND month = {target_month}
+            AND calendar_date > today()
+            GROUP BY calendar_date, channel, brand_name
+        """
+    
+        result = self.client.query(query)
+
+        forecast_top_down_sku = {}
+        for calendar_date, channel, brand_name, sum_forecast in result.result_rows:
+            if calendar_date not in forecast_top_down_sku:
+                forecast_top_down_sku[calendar_date] = {}
+            if channel not in forecast_top_down_sku[calendar_date]:
+                forecast_top_down_sku[calendar_date][channel] = {}
+            forecast_top_down_sku[calendar_date][channel][brand_name] = Decimal(sum_forecast)
+    
+        return forecast_top_down_sku
