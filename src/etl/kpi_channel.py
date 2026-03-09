@@ -34,6 +34,11 @@ class KPIDayChannelCalculator:
 
         forecast_by_channel_for_today = self.revenue_helper.get_forecast_by_channel_for_today()
         
+        forecast_top_down = self.revenue_helper.get_forecast_top_down_from_day(
+            target_year=target_year, 
+            target_month=target_month
+        )
+
         results = []
         today = date.today()
         
@@ -68,9 +73,11 @@ class KPIDayChannelCalculator:
             if calendar_date < today:
                 forecast = actual 
             elif calendar_date == today:
+                # forecast bottom-up
                 forecast = forecast_by_channel_for_today.get(channel, Decimal('0'))
             else:
-                forecast = Decimal('0')
+                # forecast top-down
+                forecast = forecast_top_down[str(calendar_date)] * rev_pct_adjustment
 
             results.append({
                 'calendar_date': calendar_date,

@@ -14,102 +14,7 @@ class KPIAdjustmentCalculator:
     
     def get_avg_rev_normal_day_30_days(self) -> Decimal:
         return self.revenue_helper.get_avg_rev_normal_day_30_days()
-    
-    def calculate_eom(self, target_year: int, target_month: int) -> Optional[Decimal]:
-        sum_actual = self.revenue_helper.get_daily_actual_sum_for_eom_calculation(target_year, target_month)
-        
-        if sum_actual == 0:
-            return None
-        
-        actual_dates = self.revenue_helper.get_actual_dates(target_year, target_month)
-        print(f"DEBUG: actual_dates = {actual_dates}")
-        
-        if not actual_dates:
-            return None
-        
-        today = date.today()
-        
-        if target_month == 12:
-            last_day_of_month = date(target_year, 12, 31)
-        else:
-            next_month = date(target_year, target_month + 1, 1)
-            last_day_of_month = next_month - timedelta(days=1)
-        
-        start_date = None
-        if today > last_day_of_month:
-            remaining_days_by_label = {}
-            print(f"DEBUG: today = {today}, month has ended, remaining_days_by_label = {remaining_days_by_label}")
-        else:
-            if today.year == target_year and today.month == target_month:
-                start_date = today
-            else:
-                start_date = date(target_year, target_month, 1)
-            
-            remaining_days_count_query = f"""
-                SELECT 
-                    date_label,
-                    COUNT(*) as day_count
-                FROM dim_date
-                WHERE year = {target_year}
-                  AND month = {target_month}
-                  AND calendar_date >= '{start_date}'
-                  AND calendar_date <= '{last_day_of_month}'
-                  AND NOT (
-                      (month = 6 AND day = 6) OR
-                      (month = 9 AND day = 9) OR
-                      (month = 11 AND day = 11) OR
-                      (month = 12 AND day = 12)
-                  )
-                GROUP BY date_label
-            """
-            
-            remaining_days_result = self.client.query(remaining_days_count_query)
-            remaining_days_by_label = {row[0]: int(row[1]) for row in remaining_days_result.result_rows}
-            print(f"DEBUG: today = {today}, start_date = {start_date}, remaining_days_by_label = {remaining_days_by_label}")
-        
-        avg_total_normal_day = self.get_avg_rev_normal_day_30_days()
-        metadata_query = f"""
-            SELECT 
-                date_label,
-                uplift,
-                row_number() OVER (
-                    PARTITION BY year, month, date_label
-                    ORDER BY updated_at DESC
-                ) AS rn
-            FROM hskcdp.kpi_day_metadata
-            WHERE year = {target_year}
-              AND month = {target_month}
-        """
-        
-        metadata_result = self.client.query(metadata_query)
-        metadata_by_label = {}
-        
-        for row in metadata_result.result_rows:
-            if row[2] == 1:
-                date_label = row[0]
-                uplift = Decimal(str(row[1]))
-                metadata_by_label[date_label] = uplift
-        
-        sum_rev_eom = Decimal('0')
-        for date_label, day_count in remaining_days_by_label.items():
-            uplift = metadata_by_label.get(date_label, Decimal('1.0'))
-            rev_eom_for_label = Decimal(str(day_count)) * avg_total_normal_day * uplift
-            sum_rev_eom += rev_eom_for_label
-        
-        print(f"DEBUG EOM calculation for month {target_month}:")
-        print(f"  - Sum(actual) = {sum_actual}")
-        print(f"  - Today = {today}")
-        if today <= last_day_of_month:
-            print(f"  - Start date (remaining from) = {start_date}")
-        print(f"  - Avg total normal day (last 30 days) = {avg_total_normal_day}")
-        print(f"  - Remaining days by label: {remaining_days_by_label}")
-        print(f"  - Sum(rev eom) = {sum_rev_eom}")
-        print(f"  - EOM = {sum_actual + sum_rev_eom}")
-        
-        eom = sum_actual + sum_rev_eom
-        
-        return eom
-    
+
     def create_new_version_from_day_26(self, target_year: int, target_month: int) -> None:
         today = date.today()
         if today.day < 26 or today.month != target_month or today.year != target_year:
@@ -576,9 +481,13 @@ class KPIAdjustmentCalculator:
         for month in range(1, target_month + 1):
             kpi_initial = Decimal(str(base_kpi[month]['kpi_initial']))
             
-            eom = self.calculate_eom(self.constants.KPI_YEAR_2026, month)
+            # EOM giờ được lấy từ forecast (bảng kpi_forecast) thay vì tính từ actual + remaining days
+            eom = self.revenue_helper.get_forecast_by_month(
+                self.constants.KPI_YEAR_2026, 
+                month
+            )
             
-            if eom is not None:
+            if eom is not None and eom > 0:
                 eoms[month] = eom
                 gap = eom - kpi_initial
                 gaps[month] = gap
