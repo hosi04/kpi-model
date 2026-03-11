@@ -57,12 +57,12 @@ class KPIDayMetadataCalculator:
         
         query = f"""
             SELECT 
-                date_label,
+                priority_label AS date_label,
                 COUNT(*) as so_ngay
             FROM dim_date
             WHERE year = {target_year}
               AND month = {target_month}
-              AND date_label IN ({','.join([f"'{dl}'" for dl in date_labels])})
+              AND priority_label IN ({','.join([f"'{dl}'" for dl in date_labels])})
               AND NOT (
                   (month = 6 AND day = 6) OR
                   (month = 9 AND day = 9) OR
@@ -176,6 +176,122 @@ class KPIDayMetadataCalculator:
         
         self.client.insert("hskcdp.kpi_day_metadata", data, column_names=columns)
     
+    def check_metadata_annually_exists(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> bool:
+        query = f"""
+            SELECT COUNT(*) 
+            FROM hskcdp.metadata_annually
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        
+        result = self.client.query(query)
+        count = result.result_rows[0][0] if result.result_rows else 0
+        
+        return count > 0
+    
+    def get_metadata_annually_data(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> List[Dict]:
+        query = f"""
+            SELECT year, month, priority_label, uplift
+            FROM hskcdp.metadata_annually
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        
+        result = self.client.query(query)
+        data = []
+        
+        for row in result.result_rows:
+            data.append({
+                'year': int(row[0]),
+                'month': int(row[1]),
+                'priority_label': str(row[2]),
+                'uplift': float(row[3])
+            })
+        
+        return data
+    
+    def save_metadata_from_annually(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> None:
+        annually_data = self.get_metadata_annually_data(target_year, target_month)
+        
+        if not annually_data:
+            return
+        
+        # Calculate historical_start_date and historical_end_date (giữ logic hiện tại)
+        today = date.today()
+        historical_end_date = today
+        historical_start_date = today - timedelta(days=90)
+        
+        now = datetime.now()
+        
+        data = []
+        for row in annually_data:
+            priority_label = row['priority_label']
+            uplift = row['uplift']
+            so_ngay = 1
+            weight = uplift
+            
+            data.append([
+                target_year,
+                target_month,
+                priority_label,
+                0.0,
+                float(uplift),
+                so_ngay,
+                float(weight),
+                0.0,
+                historical_start_date,
+                historical_end_date,
+                now,
+                now
+            ])
+        
+        columns = [
+            'year', 'month', 'date_label', 'avg_total', 'uplift',
+            'so_ngay', 'weight', 'total_weight_month',
+            'historical_start_date', 'historical_end_date',
+            'created_at', 'updated_at'
+        ]
+        
+        self.client.insert("hskcdp.kpi_day_metadata", data, column_names=columns)
+    
+    def update_total_weight_month(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> float:
+        query = f"""
+            SELECT SUM(weight)
+            FROM hskcdp.kpi_day_metadata FINAL
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        
+        result = self.client.query(query)
+        sum_weight = result.result_rows[0][0] if result.result_rows else 0
+        
+        update_query = f"""
+            ALTER TABLE hskcdp.kpi_day_metadata
+            UPDATE total_weight_month = {sum_weight}
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        
+        self.client.command(update_query)
+        
+        return float(sum_weight) if sum_weight else 0.0
+    
     def calculate_and_save_metadata(
         self,
         target_year: int,
@@ -189,6 +305,10 @@ class KPIDayMetadataCalculator:
         )
         
         self.save_metadata(metadata)
+        
+        if self.check_metadata_annually_exists(target_year, target_month):
+            self.save_metadata_from_annually(target_year, target_month)
+            self.update_total_weight_month(target_year, target_month)
         
         return metadata
 
@@ -216,13 +336,12 @@ if __name__ == "__main__":
     
     if target_month is None:
         today = date.today()
-        if today.year == constants.KPI_YEAR_2026:
             target_month = today.month + 1
             if target_month > 12:
                 target_month = 1
-                target_year = constants.KPI_YEAR_2026 + 1
+            target_year = today.year + 1
         else:
-            target_month = 1
+            target_year = today.year
     
     if target_month < 1 or target_month > 12:
         print(f"Error: target_month must be between 1 and 12, received: {target_month}")
@@ -234,4 +353,4 @@ if __name__ == "__main__":
         target_month=target_month
     )
     
-    print(f"Successfully saved {len(metadata)} metadata records")
+    print(f"Successfully saved {len(metadata) + 1} metadata records")

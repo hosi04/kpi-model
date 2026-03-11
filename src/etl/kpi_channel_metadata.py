@@ -15,7 +15,7 @@ class KPIDayChannelMetadataCalculator:
     def calculate_channel_revenue_percentage(
         self,
         date_labels: List[str] = None
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> Dict[str, Dict[str, Decimal]]:
         if date_labels is None:
             date_labels = self.constants.DATE_LABELS
         
@@ -41,7 +41,7 @@ class KPIDayChannelMetadataCalculator:
                 else:
                     percentage = 0.0
                 
-                channel_percentage[date_label][channel] = float(percentage)
+                channel_percentage[date_label][channel] = Decimal(percentage)
         
         return channel_percentage
     
@@ -121,6 +121,102 @@ class KPIDayChannelMetadataCalculator:
         
         self.client.insert("hskcdp.kpi_channel_metadata", data, column_names=columns)
     
+    def check_metadata_annually_exists(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> bool:
+        query = f"""
+            SELECT COUNT(*) 
+            FROM hskcdp.metadata_annually
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        
+        result = self.client.query(query)
+        count = result.result_rows[0][0] if result.result_rows else 0
+        
+        return count > 0
+    
+    def get_metadata_annually_data(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> List[Dict]:
+        query = f"""
+            SELECT year, month, priority_label, pct_offline, pct_online, pct_ecom
+            FROM hskcdp.metadata_annually
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        
+        result = self.client.query(query)
+        data = []
+        
+        for row in result.result_rows:
+            data.append({
+                'year': int(row[0]),
+                'month': int(row[1]),
+                'priority_label': str(row[2]),
+                'pct_offline': Decimal(row[3]) if row[3] is not None else 0.0,
+                'pct_online': Decimal(row[4]) if row[4] is not None else 0.0,
+                'pct_ecom': Decimal(row[5]) if row[5] is not None else 0.0
+            })
+        
+        return data
+    
+    def update_channel_metadata_from_annually(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> None:
+        annually_data = self.get_metadata_annually_data(target_year, target_month)
+        
+        if not annually_data:
+            return
+        
+        for row in annually_data:
+            priority_label = row['priority_label'].replace("'", "''")
+            pct_offline = row['pct_offline']
+            pct_online = row['pct_online']
+            pct_ecom = row['pct_ecom']
+            
+            update_offline_query = f"""
+                ALTER TABLE hskcdp.kpi_channel_metadata
+                UPDATE 
+                    rev_pct = toDecimal64({pct_offline}, 15),
+                    rev_pct_adjustment = toDecimal64({pct_offline}, 15)
+                WHERE year = {target_year}
+                  AND month = {target_month}
+                  AND date_label = '{priority_label}'
+                  AND channel = 'OFFLINE_HASAKI'
+            """
+            self.client.command(update_offline_query)
+            
+            update_online_query = f"""
+                ALTER TABLE hskcdp.kpi_channel_metadata
+                UPDATE 
+                    rev_pct = toDecimal64({pct_online}, 15),
+                    rev_pct_adjustment = toDecimal64({pct_online}, 15)
+                WHERE year = {target_year}
+                  AND month = {target_month}
+                  AND date_label = '{priority_label}'
+                  AND channel = 'ONLINE_HASAKI'
+            """
+            self.client.command(update_online_query)
+            
+            update_ecom_query = f"""
+                ALTER TABLE hskcdp.kpi_channel_metadata
+                UPDATE 
+                    rev_pct = toDecimal64({pct_ecom}, 15),
+                    rev_pct_adjustment = toDecimal64({pct_ecom}, 15)
+                WHERE year = {target_year}
+                  AND month = {target_month}
+                  AND date_label = '{priority_label}'
+                  AND channel = 'ECOM'
+            """
+            self.client.command(update_ecom_query)
+    
     def calculate_and_save_kpi_day_channel_metadata(
         self,
         target_year: int,
@@ -134,6 +230,9 @@ class KPIDayChannelMetadataCalculator:
         )
         
         self.save_kpi_day_channel_metadata(metadata_data)
+        
+        if self.check_metadata_annually_exists(target_year, target_month):
+            self.update_channel_metadata_from_annually(target_year, target_month)
         
         return metadata_data
 
@@ -161,10 +260,12 @@ if __name__ == "__main__":
     
     if target_month is None:
         today = date.today()
-        if today.year == constants.KPI_YEAR_2026:
-            target_month = today.month
-        else:
+        target_month = today.month + 1
+        if target_month > 12:
             target_month = 1
+            target_year = today.year + 1
+        else:
+            target_year = today.year
     
     if target_month < 1 or target_month > 12:
         print(f"Error: target_month must be between 1 and 12, received: {target_month}")

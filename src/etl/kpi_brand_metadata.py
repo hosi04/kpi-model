@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict
 from src.utils.clickhouse_client import get_client
 from src.utils.constants import Constants
@@ -14,43 +14,51 @@ class KPIBrandMetadataCalculator:
     
     def calculate_kpi_brand_metadata(
         self,
+        target_year: int,
         target_month: int
     ) -> List[Dict]:
-        # Sử dụng helper method để query từ object_sql_transaction_detail (3 tháng gần nhất)
-        revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months()
+        revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months() 
+
+        if target_month == 1:
+            recent_month = 12
+            recent_year = target_year - 1
+        else:
+            recent_month = target_month - 1
+            recent_year = target_year
         
-        # Lọc chỉ lấy brands có revenue > 0
+        brands_in_recent_month = self.revenue_helper.get_brands_with_revenue_in_month(
+            target_year=recent_year,
+            target_month=recent_month
+        )
+
         positive_revenue_brands = {
             brand_name: revenue 
             for brand_name, revenue in revenue_by_brand.items() 
-            if revenue > 0
+            if revenue > 0 and brand_name in brands_in_recent_month
         }
         
-        # Tính tổng revenue của các brands có revenue > 0
         total_revenue = sum(positive_revenue_brands.values())
         
         if total_revenue == 0:
             raise ValueError("Cannot calculate brand metadata: total revenue is 0")
         
         results = []
-        sum_check = 0.0     
+        sum_check = 0.0   
         for brand_name, brand_revenue in sorted(positive_revenue_brands.items()):
             
-            # Tính per_of_rev_by_brand = brand_revenue / total_revenue
             per_of_rev_by_brand = brand_revenue / total_revenue
             sum_check += per_of_rev_by_brand
-            # Initially, per_of_rev_by_brand_adj equals per_of_rev_by_brand
-            # pic is empty string for now
             per_of_rev_by_brand_adj = per_of_rev_by_brand
             
             results.append({
+                'year': target_year,
                 'month': target_month,
                 'brand_name': brand_name,
                 'per_of_rev_by_brand': float(per_of_rev_by_brand),
-                'pic': '',  # Empty string for now
+                'pic': '',
                 'per_of_rev_by_brand_adj': float(per_of_rev_by_brand_adj)
             })
-        print("=====================sum_check: ", sum_check)
+        print("=========sum_check========= ", sum_check)
         return results
     
     def save_kpi_brand_metadata(self, metadata_data: List[Dict]) -> None:
@@ -62,6 +70,7 @@ class KPIBrandMetadataCalculator:
         data = []
         for row in metadata_data:
             data.append([
+                row['year'],
                 row['month'],
                 row['brand_name'],
                 row['per_of_rev_by_brand'],
@@ -72,7 +81,7 @@ class KPIBrandMetadataCalculator:
             ])
         
         columns = [
-            'month', 'brand_name', 'per_of_rev_by_brand', 'pic', 'per_of_rev_by_brand_adj',
+            'year', 'month', 'brand_name', 'per_of_rev_by_brand', 'pic', 'per_of_rev_by_brand_adj',
             'created_at', 'updated_at'
         ]
         
@@ -80,9 +89,11 @@ class KPIBrandMetadataCalculator:
     
     def calculate_and_save_kpi_brand_metadata(
         self,
+        target_year: int,
         target_month: int
     ) -> List[Dict]:
         metadata_data = self.calculate_kpi_brand_metadata(
+            target_year=target_year,
             target_month=target_month
         )
         
@@ -92,12 +103,43 @@ class KPIBrandMetadataCalculator:
 
 
 if __name__ == "__main__":
+    import sys
+    
     constants = Constants()
     calculator = KPIBrandMetadataCalculator(constants)
     
-    print("Calculating kpi_brand_metadata for month 1...")
+    target_month = None
+    target_year = constants.KPI_YEAR_2026
+    
+    if len(sys.argv) > 1:
+        i = 1
+        while i < len(sys.argv):
+            if sys.argv[i] == "--target-month" and i + 1 < len(sys.argv):
+                target_month = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
+                target_year = int(sys.argv[i + 1])
+                i += 2
+            else:
+                i += 1
+    
+    if target_month is None:
+        today = date.today()
+        target_month = today.month + 1
+        if target_month > 12:
+            target_month = 1
+            target_year = today.year + 1
+        else:
+            target_year = today.year
+    
+    if target_month < 1 or target_month > 12:
+        print(f"Error: target_month must be between 1 and 12, received: {target_month}")
+        sys.exit(1)
+    
+    print(f"Calculating kpi_brand_metadata for month {target_month}/{target_year}...")
     metadata_data = calculator.calculate_and_save_kpi_brand_metadata(
-        target_month=2
+        target_year=target_year,
+        target_month=target_month
     )
     
     print(f"Successfully saved {len(metadata_data)} kpi_brand_metadata records")
