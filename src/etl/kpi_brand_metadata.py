@@ -15,9 +15,10 @@ class KPIBrandMetadataCalculator:
     def calculate_kpi_brand_metadata(
         self,
         target_year: int,
-        target_month: int
+        target_month: int,
+        interval_days: int = 90
     ) -> List[Dict]:
-        revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_3_months() 
+        revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_n_days(interval_days=interval_days) 
 
         if target_month == 1:
             recent_month = 12
@@ -90,11 +91,13 @@ class KPIBrandMetadataCalculator:
     def calculate_and_save_kpi_brand_metadata(
         self,
         target_year: int,
-        target_month: int
+        target_month: int,
+        interval_days: int = 90
     ) -> List[Dict]:
         metadata_data = self.calculate_kpi_brand_metadata(
             target_year=target_year,
-            target_month=target_month
+            target_month=target_month,
+            interval_days=interval_days
         )
         
         self.save_kpi_brand_metadata(metadata_data)
@@ -110,6 +113,7 @@ if __name__ == "__main__":
     
     target_month = None
     target_year = constants.KPI_YEAR_2026
+    interval_days = 90
     
     if len(sys.argv) > 1:
         i = 1
@@ -119,6 +123,9 @@ if __name__ == "__main__":
                 i += 2
             elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
                 target_year = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--interval-days" and i + 1 < len(sys.argv):
+                interval_days = int(sys.argv[i + 1])
                 i += 2
             else:
                 i += 1
@@ -139,7 +146,8 @@ if __name__ == "__main__":
     print(f"Calculating kpi_brand_metadata for month {target_month}/{target_year}...")
     metadata_data = calculator.calculate_and_save_kpi_brand_metadata(
         target_year=target_year,
-        target_month=target_month
+        target_month=target_month,
+        interval_days=interval_days
     )
     
     print(f"Successfully saved {len(metadata_data)} kpi_brand_metadata records")

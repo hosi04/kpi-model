@@ -17,24 +17,28 @@ class KPIDayChannelCalculator:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        # Use helper method to query from kpi_day and kpi_channel_metadata
         kpi_day_channel_data = self.revenue_helper.get_kpi_day_with_channel_metadata(
             target_year=target_year,
             target_month=target_month
         )
         
-        # Get actual revenue by channel and date
         actual_by_date = self.revenue_helper.get_actual_by_channel_and_date(
             target_year=target_year,
             target_month=target_month
         )
         
-        # Get kpi_day_adjustment by date
         kpi_day_adjustment_by_date = self.revenue_helper.get_kpi_day_adjustment_by_date(
             target_year=target_year,
             target_month=target_month
         )
+
+        forecast_by_channel_for_today = self.revenue_helper.get_forecast_by_channel_for_today()
         
+        forecast_top_down = self.revenue_helper.get_forecast_top_down_from_day(
+            target_year=target_year, 
+            target_month=target_month
+        )
+
         results = []
         today = date.today()
         
@@ -48,13 +52,11 @@ class KPIDayChannelCalculator:
             rev_pct_adjustment = row['rev_pct_adjustment']
             kpi_day_initial = row['kpi_day_initial']
             
-            # Calculate kpi_channel_initial using rev_pct_adjustment
             kpi_channel_initial = kpi_day_initial * rev_pct_adjustment
             
-            # Get actual revenue for this channel on this date
             actual = actual_by_date.get(calendar_date, {}).get(channel, 0.0)       
             
-            if calendar_date <= today:
+            if calendar_date < today:
                 kpi_channel_adjustment = Decimal(str(actual))
                 gap = Decimal(str(actual)) - kpi_channel_initial
             else:
@@ -65,6 +67,16 @@ class KPIDayChannelCalculator:
                 else:
                     kpi_channel_adjustment = None
             
+            forecast = None 
+            if calendar_date < today:
+                forecast = actual 
+            elif calendar_date == today:
+                # forecast bottom-up
+                forecast = forecast_by_channel_for_today.get(channel, Decimal('0'))
+            else:
+                # forecast top-down
+                forecast = forecast_top_down[str(calendar_date)] * rev_pct_adjustment
+
             results.append({
                 'calendar_date': calendar_date,
                 'year': year,
@@ -76,7 +88,8 @@ class KPIDayChannelCalculator:
                 'kpi_channel_initial': kpi_channel_initial,
                 'actual': Decimal(str(actual)) if actual is not None else None,
                 'gap': Decimal(str(gap)) if gap is not None else None,
-                'kpi_channel_adjustment': kpi_channel_adjustment if kpi_channel_adjustment is not None else None
+                'kpi_channel_adjustment': kpi_channel_adjustment if kpi_channel_adjustment is not None else None,
+                'forecast': forecast
             })
         
         return results
@@ -101,6 +114,7 @@ class KPIDayChannelCalculator:
                 row['actual'],
                 row['gap'],
                 row['kpi_channel_adjustment'],
+                row['forecast'],
                 now,
                 now
             ])
@@ -108,7 +122,7 @@ class KPIDayChannelCalculator:
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
             'channel', 'rev_pct', 'kpi_channel_initial',
-            'actual', 'gap', 'kpi_channel_adjustment',
+            'actual', 'gap', 'kpi_channel_adjustment', 'forecast',
             'created_at', 'updated_at'
         ]
         
@@ -119,7 +133,6 @@ class KPIDayChannelCalculator:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        # Calculate kpi_day_channel
         kpi_day_channel_data = self.calculate_kpi_day_channel(
             target_year=target_year,
             target_month=target_month

@@ -15,29 +15,38 @@ class KPIBrandCalculator:
     def calculate_kpi_brand(
         self,
         target_year: int,
-        target_month: int
+        target_month: int,
+        interval_days: int = 90
     ) -> List[Dict]:
-        # Sử dụng helper method để query từ kpi_day_channel và kpi_brand_metadata
         kpi_brand_data = self.revenue_helper.get_kpi_brand_with_brand_metadata(
             target_year=target_year,
-            target_month=target_month
+            target_month=target_month,
+            interval_days=interval_days
         )
         
-        # Lấy actual revenue theo brand, channel và date
         actual_by_date = self.revenue_helper.get_actual_by_brand_channel_and_date(
             target_year=target_year,
             target_month=target_month
         )
         
-        # Lấy kpi_day_channel_adjustment theo date và channel
         kpi_day_channel_adjustment_by_date = self.revenue_helper.get_kpi_day_channel_adjustment_by_date_and_channel(
             target_year=target_year,
             target_month=target_month
         )
+
+        forecast_by_brand_today = self.revenue_helper.get_forecast_by_brand_for_today()
+
+        forecast_top_down_brand = self.revenue_helper.get_forecast_top_down_from_channel(
+            target_year=target_year,
+            target_month=target_month
+        )
+        
+        new_brand_this_month = self.revenue_helper.get_new_brand_this_month()
         
         results = []
         today = date.today()
         
+        # Handle normal brand
         for row in kpi_brand_data:
             calendar_date = row['calendar_date']
             year = row['year']
@@ -49,28 +58,34 @@ class KPIBrandCalculator:
             per_of_rev_by_brand_adj = row['per_of_rev_by_brand_adj']
             kpi_channel_initial = row['kpi_channel_initial']
             
-            # Calculate kpi_brand_initial = kpi_channel_initial * per_of_rev_by_brand_adj
             kpi_brand_initial = kpi_channel_initial * per_of_rev_by_brand_adj
             
-            # Lấy actual revenue cho brand này trong channel này trong ngày này
-            actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, 0.0)
+            actual = Decimal(actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, 0.0))
             
-            # Calculate kpi_brand_adjustment:
-            # - Với những ngày đã qua và ngày hiện tại: kpi_brand_adjustment = actual
-            # - Với ngày tương lai: kpi_brand_adjustment = kpi_day_channel_adjustment * per_of_rev_by_brand_adj
-            if calendar_date <= today:
-                # Ngày đã qua và ngày hiện tại: kpi_brand_adjustment = actual
+            if calendar_date < today:
                 kpi_brand_adjustment = actual
-                gap = actual - float(kpi_brand_initial)
             else:
-                # Ngày tương lai: tính theo công thức
-                gap = 0.0
                 kpi_day_channel_adjustment = kpi_day_channel_adjustment_by_date.get(calendar_date, {}).get(channel)
                 if kpi_day_channel_adjustment is not None:
-                    kpi_brand_adjustment = float(kpi_day_channel_adjustment) * float(per_of_rev_by_brand_adj)
+                    kpi_brand_adjustment = Decimal(kpi_day_channel_adjustment) * Decimal(per_of_rev_by_brand_adj)
                 else:
                     kpi_brand_adjustment = None
-            
+
+            if calendar_date < today:
+                gap = actual - Decimal(kpi_brand_initial)
+            else:
+                gap = Decimal('0')
+
+            forecast = None
+            if calendar_date < today:
+                forecast = actual
+            elif calendar_date == today:
+                # forecast bottom-up
+                forecast = forecast_by_brand_today.get(channel, {}).get(brand_name, Decimal('0'))
+            else:
+                # forecast top-down
+                forecast = forecast_top_down_brand.get(calendar_date, {}).get(channel, Decimal("0")) * per_of_rev_by_brand_adj
+
             results.append({
                 'calendar_date': calendar_date,
                 'year': year,
@@ -79,12 +94,117 @@ class KPIBrandCalculator:
                 'date_label': date_label,
                 'channel': channel,
                 'brand_name': brand_name,
-                'percentage_of_revenue_by_brand': float(per_of_rev_by_brand_adj),
-                'kpi_brand_initial': float(kpi_brand_initial),
+                'pct_of_rev_by_brand': Decimal(per_of_rev_by_brand_adj),
+                'kpi_brand_initial': Decimal(kpi_brand_initial),
                 'actual': actual,
                 'gap': gap,
-                'kpi_brand_adjustment': kpi_brand_adjustment
+                'kpi_brand_adjustment': kpi_brand_adjustment,
+                'forecast': forecast
             })
+        
+        # Handle new brand and other brand
+        if new_brand_this_month:
+            new_brand_records = self.get_new_brand_records(
+                target_year=target_year,
+                target_month=target_month,
+                new_brands=new_brand_this_month,
+                actual_by_date=actual_by_date,
+                forecast_by_brand_today=forecast_by_brand_today,
+                today=today,
+                kpi_day_channel_adjustment_by_date=kpi_day_channel_adjustment_by_date
+            )
+            results.extend(new_brand_records)
+        
+        brands_in_metadata = {row['brand_name'] for row in kpi_brand_data}
+        
+        brands_with_actual = set()
+        for calendar_date, channels in actual_by_date.items():
+            for channel, brands in channels.items():
+                for brand_name in brands.keys():
+                    brands_with_actual.add(brand_name)
+        
+        brands_to_process = brands_with_actual - brands_in_metadata - new_brand_this_month
+        
+        if brands_to_process:
+            other_brand_records = self.get_new_brand_records(
+                target_year=target_year,
+                target_month=target_month,
+                new_brands=brands_to_process,
+                actual_by_date=actual_by_date,
+                forecast_by_brand_today=forecast_by_brand_today,
+                today=today,
+                kpi_day_channel_adjustment_by_date=kpi_day_channel_adjustment_by_date
+            )
+            results.extend(other_brand_records)
+        
+        return results
+    
+    def get_new_brand_records(
+        self,
+        target_year: int,
+        target_month: int,
+        new_brands: set,
+        actual_by_date: Dict,
+        forecast_by_brand_today: Dict,
+        today: date,
+        kpi_day_channel_adjustment_by_date: Dict
+    ) -> List[Dict]:
+        date_channel_combinations = self.revenue_helper.get_all_date_channel_combinations(
+            target_year=target_year,
+            target_month=target_month
+        )
+        
+        results = []
+        
+        for brand_name in new_brands:
+            for combo in date_channel_combinations:
+                calendar_date = combo['calendar_date']
+                year = combo['year']
+                month = combo['month']
+                day = combo['day']
+                date_label = combo['date_label']
+                channel = combo['channel']
+                
+                actual = Decimal(actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, 0.0))
+                
+                kpi_brand_initial = Decimal('0')
+                
+                if calendar_date > today:
+                    continue
+                
+                if calendar_date < today:
+                    kpi_brand_adjustment = actual
+                else:
+                    kpi_brand_adjustment = None
+                
+                gap = actual
+                
+                
+                forecast = None
+                if calendar_date < today:
+                    forecast = actual
+                elif calendar_date == today:
+                    # forecast bottom-up
+                    forecast = forecast_by_brand_today.get(channel, {}).get(brand_name, Decimal('0'))
+                else:
+                    # forecast top-down
+                    forecast = Decimal('0')
+                
+                results.append({
+                    'calendar_date': calendar_date,
+                    'year': year,
+                    'month': month,
+                    'day': day,
+                    'date_label': date_label,
+                    'channel': channel,
+                    'brand_name': brand_name,
+                    'pct_of_rev_by_brand': Decimal('0'),
+                    'kpi_brand_initial': kpi_brand_initial,
+                    'actual': actual,
+                    'gap': gap,
+                    'kpi_brand_adjustment': kpi_brand_adjustment,
+                    'forecast': forecast
+                })
         
         return results
     
@@ -104,33 +224,36 @@ class KPIBrandCalculator:
                 row['date_label'],
                 row['channel'],
                 row['brand_name'],
-                row['percentage_of_revenue_by_brand'],
+                row['pct_of_rev_by_brand'],
                 row['kpi_brand_initial'],
                 row['actual'],
                 row['gap'],
                 row['kpi_brand_adjustment'],
+                row['forecast'],
                 now,
                 now
             ])
         
         columns = [
             'calendar_date', 'year', 'month', 'day', 'date_label',
-            'channel', 'brand_name', 'percentage_of_revenue_by_brand', 
+            'channel', 'brand_name', 'pct_of_rev_by_brand', 
             'kpi_brand_initial',
-            'actual', 'gap', 'kpi_brand_adjustment',
+            'actual', 'gap', 'kpi_brand_adjustment', 'forecast', 
             'created_at', 'updated_at'
         ]
         
-        self.client.insert("hskcdp.kpi_day_channel_brand", data, column_names=columns)
+        self.client.insert("hskcdp.kpi_brand", data, column_names=columns)
     
     def calculate_and_save_kpi_brand(
         self,
         target_year: int,
-        target_month: int
+        target_month: int,
+        interval_days: int = 90
     ) -> List[Dict]:
         kpi_brand_data = self.calculate_kpi_brand(
             target_year=target_year,
-            target_month=target_month
+            target_month=target_month,
+            interval_days=interval_days
         )
         
         self.save_kpi_brand(kpi_brand_data)
@@ -139,11 +262,44 @@ class KPIBrandCalculator:
 
 
 if __name__ == "__main__":
+    import sys
+    
     constants = Constants()
     calculator = KPIBrandCalculator(constants)
     
-    print("Calculating kpi_brand for month 1/2026...")
+    target_month = None
+    target_year = constants.KPI_YEAR_2026
+    interval_days = 90
+    
+    if len(sys.argv) > 1:
+        i = 1
+        while i < len(sys.argv):
+            if sys.argv[i] == "--target-month" and i + 1 < len(sys.argv):
+                target_month = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
+                target_year = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--interval-days" and i + 1 < len(sys.argv):
+                interval_days = int(sys.argv[i + 1])
+                i += 2
+            else:
+                i += 1
+    
+    if target_month is None:
+        today = date.today()
+        if today.year == constants.KPI_YEAR_2026:
+            target_month = today.month
+        else:
+            target_month = 1
+    
+    if target_month < 1 or target_month > 12:
+        print(f"Error: target_month must be between 1 and 12, received: {target_month}")
+        sys.exit(1)
+    
+    print(f"Calculating kpi_brand for month {target_month}/{target_year}...")
     kpi_brand_data = calculator.calculate_and_save_kpi_brand(
-        target_year=2026,
-        target_month=2
+        target_year=target_year,
+        target_month=target_month,
+        interval_days=interval_days
     )

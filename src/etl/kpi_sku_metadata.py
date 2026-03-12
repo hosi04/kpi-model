@@ -15,7 +15,8 @@ class KPISKUMetadataCalculator:
     def calculate_kpi_sku_metadata(
         self,
         target_year: int,
-        target_month: int
+        target_month: int,
+        interval_days: int = 30
     ) -> List[Dict]:
         if target_month == 1:
             recent_month = 12
@@ -47,7 +48,7 @@ class KPISKUMetadataCalculator:
                     CAST(sku AS UInt64) AS sku,
                     SUM(COALESCE(total_amount, 0)) AS revenue
                 FROM hskcdp.object_sql_transaction_details FINAL
-                WHERE toDate(created_at) >= today() - INTERVAL 3 MONTH
+                WHERE toMonth(created_at) = {recent_month}
                   AND status NOT IN ('Canceled', 'Cancel')
                   AND (brand_name, CAST(sku AS String)) IN ({sku_filter_str})
                 GROUP BY brand_name, sku
@@ -57,7 +58,7 @@ class KPISKUMetadataCalculator:
                     brand_name, 
                     SUM(COALESCE(total_amount, 0)) AS total_revenue_by_brand 
                 FROM hskcdp.object_sql_transaction_details FINAL
-                WHERE toDate(created_at) >= today() - INTERVAL 3 MONTH
+                WHERE toMonth(created_at) = {recent_month}
                   AND status NOT IN ('Canceled', 'Cancel')
                 GROUP BY brand_name
             ),
@@ -165,11 +166,13 @@ class KPISKUMetadataCalculator:
     def calculate_and_save_kpi_sku_metadata(
         self,
         target_year: int,
-        target_month: int
+        target_month: int,
+        interval_days: int = 30
     ) -> List[Dict]:
         metadata_data = self.calculate_kpi_sku_metadata(
             target_year=target_year,
-            target_month=target_month
+            target_month=target_month,
+            interval_days=interval_days
         )
         
         self.save_kpi_sku_metadata(metadata_data)
@@ -185,6 +188,7 @@ if __name__ == "__main__":
     
     target_month = None
     target_year = constants.KPI_YEAR_2026
+    interval_days = 30
     
     if len(sys.argv) > 1:
         i = 1
@@ -194,6 +198,9 @@ if __name__ == "__main__":
                 i += 2
             elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
                 target_year = int(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--interval-days" and i + 1 < len(sys.argv):
+                interval_days = int(sys.argv[i + 1])
                 i += 2
             else:
                 i += 1
@@ -214,7 +221,8 @@ if __name__ == "__main__":
     print(f"Calculating kpi_sku_metadata for month {target_month}/{target_year}...")
     metadata_data = calculator.calculate_and_save_kpi_sku_metadata(
         target_year=target_year,
-        target_month=target_month
+        target_month=target_month,
+        interval_days=interval_days
     )
     
     print(f"Successfully saved {len(metadata_data)} kpi_sku_metadata records")

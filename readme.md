@@ -194,6 +194,37 @@ CREATE TABLE hskcdp.actual_2026_day_staging (
 ORDER BY (year, calendar_date)
 SETTINGS index_granularity = 8192;
 
+CREATE TABLE hskcdp.kpi_subchannel_metadata (
+  `year` UInt16,
+  `month` UInt8,
+  `channel` String,
+  `subchannel` String,
+  `rev_pct` Decimal(40, 15),
+  `rev_pct_adj` Decimal(40, 15),
+  `created_at` DateTime DEFAULT now(),
+  `updated_at` DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (year, month, channel, subchannel)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE hskcdp.kpi_subchannel (
+  `calendar_date` Date,
+  `year` UInt16,
+  `month` UInt8,
+  `day` UInt8,
+  `date_label` String,
+  `channel` String,
+  `subchannel` String,
+  `rev_pct` Decimal(40, 15),
+  `kpi_subchannel_initial` Decimal(40, 15),
+  `actual` Nullable(Decimal(40, 15)),
+  `gap` Nullable(Decimal(40, 15)),
+  `kpi_subchannel_adjustment` Nullable(Decimal(40, 15)),
+  `created_at` DateTime DEFAULT now(),
+  `updated_at` DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (year, month, calendar_date, channel, subchannel)
+SETTINGS index_granularity = 8192;
 
 
 **Logic**
