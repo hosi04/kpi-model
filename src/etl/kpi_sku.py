@@ -97,7 +97,8 @@ class KPISKUCalculator:
                     CASE
                         WHEN stats.total_sku_count = 1 THEN 1.0
                         WHEN stats.hero_count > 0 AND stats.core_count = 0 AND stats.tail_count = 0 THEN 1.0
-                        WHEN stats.hero_count > 0 AND stats.core_count = 0 AND stats.tail_count > 0 THEN 1.0
+                        WHEN stats.hero_count > 0 AND stats.core_count = 0 AND stats.tail_count > 0 THEN 
+                            CASE WHEN cj.sku_classification = 'Hero' THEN 1.0 ELSE 0.0 END
                         WHEN stats.hero_count > 0 AND stats.core_count > 0 THEN
                             CASE 
                                 WHEN cj.sku_classification = 'Hero' THEN 0.85
