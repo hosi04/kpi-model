@@ -15,13 +15,11 @@ class KPIBrandCalculator:
     def calculate_kpi_brand(
         self,
         target_year: int,
-        target_month: int,
-        interval_days: int = 90
+        target_month: int
     ) -> List[Dict]:
         kpi_brand_data = self.revenue_helper.get_kpi_brand_with_brand_metadata(
             target_year=target_year,
-            target_month=target_month,
-            interval_days=interval_days
+            target_month=target_month
         )
         
         actual_by_date = self.revenue_helper.get_actual_by_brand_channel_and_date(
@@ -247,13 +245,11 @@ class KPIBrandCalculator:
     def calculate_and_save_kpi_brand(
         self,
         target_year: int,
-        target_month: int,
-        interval_days: int = 90
+        target_month: int
     ) -> List[Dict]:
         kpi_brand_data = self.calculate_kpi_brand(
             target_year=target_year,
-            target_month=target_month,
-            interval_days=interval_days
+            target_month=target_month
         )
         
         self.save_kpi_brand(kpi_brand_data)
@@ -269,7 +265,6 @@ if __name__ == "__main__":
     
     target_month = None
     target_year = constants.KPI_YEAR_2026
-    interval_days = 90
     
     if len(sys.argv) > 1:
         i = 1
@@ -279,9 +274,6 @@ if __name__ == "__main__":
                 i += 2
             elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
                 target_year = int(sys.argv[i + 1])
-                i += 2
-            elif sys.argv[i] == "--interval-days" and i + 1 < len(sys.argv):
-                interval_days = int(sys.argv[i + 1])
                 i += 2
             else:
                 i += 1
@@ -300,6 +292,5 @@ if __name__ == "__main__":
     print(f"Calculating kpi_brand for month {target_month}/{target_year}...")
     kpi_brand_data = calculator.calculate_and_save_kpi_brand(
         target_year=target_year,
-        target_month=target_month,
-        interval_days=interval_days
+        target_month=target_month
     )

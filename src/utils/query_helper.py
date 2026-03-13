@@ -697,38 +697,9 @@ class RevenueQueryHelper:
     def get_kpi_brand_with_brand_metadata(
         self,
         target_year: int,
-        target_month: int,
-        interval_days: int = 90
+        target_month: int
     ) -> List[Dict]:
         query = f"""
-            WITH rev AS (
-                SELECT
-                    CASE
-                        WHEN platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
-                        WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
-                        ELSE 'ECOM'
-                    END AS channel,
-                    brand_name,
-                    SUM(COALESCE(total_amount, 0)) AS revenue
-                FROM hskcdp.object_sql_transaction_details FINAL
-                WHERE toDate(created_at) >= today() - INTERVAL {interval_days} DAY
-                  AND status NOT IN ('Canceled', 'Cancel')
-                GROUP BY channel, brand_name
-            ),
-
-            totals AS (
-                SELECT SUM(revenue) AS total_revenue
-                FROM rev
-            ),
-
-            brand_pct AS (
-                SELECT
-                    r.channel,
-                    r.brand_name,
-                    r.revenue / nullIf(t.total_revenue, 0) AS per_of_rev_by_brand_adj
-                FROM rev r
-                CROSS JOIN totals t
-            )
             SELECT
                 c.calendar_date,
                 c.year,
