@@ -694,23 +694,25 @@ class RevenueQueryHelper:
 
     # KPI BRAND RELATED QUERIES
     
-    def get_kpi_brand_with_brand_metadata(
+    def get_kpi_subchannel_with_brand_metadata(
         self,
         target_year: int,
         target_month: int
     ) -> List[Dict]:
         query = f"""
             SELECT
-                c.calendar_date,
-                c.year,
-                c.month,
-                c.day,
-                c.date_label,
-                c.channel,
+                s.calendar_date,
+                s.year,
+                s.month,
+                s.day,
+                s.date_label,
+                s.channel,
+                s.subchannel,
+                s.store_name,
                 b.brand_name,
                 b.per_of_rev_by_brand_adj,
-                c.kpi_channel_initial
-            FROM (SELECT * FROM hskcdp.kpi_channel FINAL) AS c 
+                s.kpi_subchannel_initial
+            FROM (SELECT * FROM hskcdp.kpi_subchannel FINAL) AS s 
             CROSS JOIN (
                 SELECT 
                     brand_name,
@@ -719,15 +721,9 @@ class RevenueQueryHelper:
                 WHERE year = {target_year}
                   AND month = {target_month}
             ) AS b
-            WHERE c.year = {target_year}
-              AND c.month = {target_month}
-              AND NOT (
-                  (c.month = 6 AND c.day BETWEEN 5 AND 7) OR
-                  (c.month = 9 AND c.day BETWEEN 8 AND 10) OR
-                  (c.month = 11 AND c.day BETWEEN 10 AND 12) OR
-                  (c.month = 12 AND c.day BETWEEN 11 AND 13)
-              )
-            ORDER BY c.calendar_date, c.channel, b.brand_name
+            WHERE s.year = {target_year}
+              AND s.month = {target_month}
+            ORDER BY s.calendar_date, s.channel, s.subchannel, s.store_name, b.brand_name
         """
         
         result = self.client.query(query)
@@ -741,18 +737,20 @@ class RevenueQueryHelper:
                 'day': int(row[3]),
                 'date_label': str(row[4]),
                 'channel': str(row[5]),
-                'brand_name': str(row[6]),
-                'per_of_rev_by_brand_adj': Decimal(str(row[7])),
-                'kpi_channel_initial': Decimal(str(row[8]))
+                'subchannel': str(row[6]),
+                'store_name': str(row[7]),
+                'brand_name': str(row[8]),
+                'per_of_rev_by_brand_adj': Decimal(str(row[9])),
+                'kpi_subchannel_initial': Decimal(str(row[10]))
             })
         
         return kpi_brand_data
     
-    def get_actual_by_brand_channel_and_date(
+    def get_actual_by_brand_subchannel_store_and_date(
         self,
         target_year: int,
         target_month: int
-    ) -> Dict[date, Dict[str, Dict[str, float]]]:
+    ) -> Dict[date, Dict[str, Dict[str, Dict[str, Dict[str, float]]]]]:
         query = f"""
             SELECT 
                 toDate(created_at) as calendar_date,
@@ -761,13 +759,21 @@ class RevenueQueryHelper:
                     WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
                     ELSE 'ECOM'
                 END as channel,
+                CASE 
+                    WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE'
+                    ELSE COALESCE(sub_channel, 'Unknown')
+                END as subchannel,
+                CASE 
+                    WHEN platform = 'OFFLINE_HASAKI' THEN COALESCE(store_name, 'Unknown')
+                    ELSE COALESCE(sub_channel, 'Unknown')
+                END as store_name,
                 brand_name,
                 SUM(COALESCE(total_amount, 0)) as actual_amount
             FROM hskcdp.object_sql_transaction_details FINAL
             WHERE toYear(created_at) = {target_year}
               AND toMonth(created_at) = {target_month}
               AND status NOT IN ('Canceled', 'Cancel')
-            GROUP BY calendar_date, channel, brand_name
+            GROUP BY calendar_date, channel, subchannel, store_name, brand_name
         """
         
         result = self.client.query(query)
@@ -776,52 +782,62 @@ class RevenueQueryHelper:
         for row in result.result_rows:
             calendar_date = row[0]
             channel = row[1]
-            brand_name = str(row[2])
-            actual_amount = float(row[3])
+            subchannel = str(row[2])
+            store_name = str(row[3])
+            brand_name = str(row[4])
+            actual_amount = float(row[5])
             
             if calendar_date not in actual_by_date:
                 actual_by_date[calendar_date] = {}
-            
             if channel not in actual_by_date[calendar_date]:
                 actual_by_date[calendar_date][channel] = {}
+            if subchannel not in actual_by_date[calendar_date][channel]:
+                actual_by_date[calendar_date][channel][subchannel] = {}
+            if store_name not in actual_by_date[calendar_date][channel][subchannel]:
+                actual_by_date[calendar_date][channel][subchannel][store_name] = {}
             
-            actual_by_date[calendar_date][channel][brand_name] = actual_amount
+            actual_by_date[calendar_date][channel][subchannel][store_name][brand_name] = actual_amount
         
         return actual_by_date
     
-    def get_kpi_day_channel_adjustment_by_date_and_channel(
+    def get_kpi_subchannel_adjustment_by_date_subchannel_store(
         self,
         target_year: int,
         target_month: int
-    ) -> Dict[date, Dict[str, Decimal]]:
+    ) -> Dict[date, Dict[str, Dict[str, Dict[str, Decimal]]]]:
         query = f"""
             SELECT 
                 calendar_date,
                 channel,
-                kpi_channel_adjustment
-            FROM hskcdp.kpi_channel FINAL
+                subchannel,
+                store_name,
+                kpi_subchannel_adjustment
+            FROM hskcdp.kpi_subchannel FINAL
             WHERE year = {target_year}
               AND month = {target_month}
-            ORDER BY calendar_date, channel
+            ORDER BY calendar_date, channel, subchannel, store_name
         """
         
         result = self.client.query(query)
         
-        kpi_day_channel_adjustment_by_date = {}
+        adj_map = {}
         for row in result.result_rows:
             calendar_date = row[0]
             channel = str(row[1])
-            kpi_channel_adjustment = row[2]
+            subchannel = str(row[2])
+            store_name = str(row[3])
+            adj = row[4]
             
-            if calendar_date not in kpi_day_channel_adjustment_by_date:
-                kpi_day_channel_adjustment_by_date[calendar_date] = {}
+            if calendar_date not in adj_map:
+                adj_map[calendar_date] = {}
+            if channel not in adj_map[calendar_date]:
+                adj_map[calendar_date][channel] = {}
+            if subchannel not in adj_map[calendar_date][channel]:
+                adj_map[calendar_date][channel][subchannel] = {}
             
-            if kpi_channel_adjustment is not None:
-                kpi_day_channel_adjustment_by_date[calendar_date][channel] = Decimal(str(kpi_channel_adjustment))
-            else:
-                kpi_day_channel_adjustment_by_date[calendar_date][channel] = None
+            adj_map[calendar_date][channel][subchannel][store_name] = Decimal(str(adj)) if adj is not None else None
         
-        return kpi_day_channel_adjustment_by_date
+        return adj_map
     
     def get_all_date_channel_combinations(
         self,
@@ -889,28 +905,37 @@ class RevenueQueryHelper:
 
         return forecast_by_channel_brand
     
-    def get_forecast_top_down_from_channel(self, target_year:int, target_month: int) -> Dict[date, Dict[str, Decimal]]:
+    def get_forecast_top_down_from_subchannel(self, target_year:int, target_month: int) -> Dict[date, Dict[str, Dict[str, Dict[str, Decimal]]]]:
         query = f"""
             SELECT
                 calendar_date, 
                 channel, 
-                SUM(forecast) as sum_forecast
-            FROM hskcdp.kpi_channel FINAL
+                subchannel,
+                store_name,
+                COALESCE(actual, kpi_subchannel_initial) as forecast_value
+            FROM hskcdp.kpi_subchannel FINAL
             WHERE year = {target_year}
             AND month = {target_month}
             AND calendar_date > today()
-            GROUP BY calendar_date, channel 
         """
 
         result = self.client.query(query)
 
-        forecast_top_down_brand = {}
-        for calendar_date, channel, sum_forecast in result.result_rows:
-            if calendar_date not in forecast_top_down_brand:
-                forecast_top_down_brand[calendar_date] = {}
-            forecast_top_down_brand[calendar_date][channel] = Decimal(sum_forecast)
+        forecast_map = {}
+        for row in result.result_rows:
+            cal_date = row[0]
+            channel = str(row[1])
+            subchannel = str(row[2])
+            store_name = str(row[3])
+            val = Decimal(str(row[4]))
+            
+            if cal_date not in forecast_map: forecast_map[cal_date] = {}
+            if channel not in forecast_map[cal_date]: forecast_map[cal_date][channel] = {}
+            if subchannel not in forecast_map[cal_date][channel]: forecast_map[cal_date][channel][subchannel] = {}
+            
+            forecast_map[cal_date][channel][subchannel][store_name] = val
         
-        return forecast_top_down_brand
+        return forecast_map
 
     def get_new_brand_this_month(
         self
