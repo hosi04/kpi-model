@@ -43,6 +43,7 @@ class KPISubChannelCalculator:
             date_label = row['date_label']
             channel = row['channel']
             subchannel = row['subchannel']
+            store_name = row['store_name']
             rev_pct = row['rev_pct']
             kpi_channel_initial = row['kpi_channel_initial']
             kpi_channel_adjustment = row['kpi_channel_adjustment']
@@ -50,8 +51,8 @@ class KPISubChannelCalculator:
             # Tính kpi_subchannel_initial
             kpi_subchannel_initial = kpi_channel_initial * rev_pct
             
-            # Lấy actual của subchannel nếu có
-            actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(subchannel, 0.0)       
+            # Lấy actual của store_name (trong subchannel) nếu có
+            actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(subchannel, {}).get(store_name, 0.0)       
             
             if calendar_date < today:
                 kpi_subchannel_adjustment = Decimal(str(actual))
@@ -74,6 +75,7 @@ class KPISubChannelCalculator:
                 'date_label': date_label,
                 'channel': channel,
                 'subchannel': subchannel,
+                'store_name': store_name,
                 'rev_pct': rev_pct,
                 'kpi_subchannel_initial': kpi_subchannel_initial,
                 'actual': actual_decimal,
@@ -89,6 +91,7 @@ class KPISubChannelCalculator:
                 date_label,
                 channel,
                 subchannel,
+                store_name,
                 rev_pct,
                 kpi_subchannel_initial,
                 actual_decimal,
@@ -101,9 +104,9 @@ class KPISubChannelCalculator:
         if data_to_insert:
             columns = [
                 'calendar_date', 'year', 'month', 'day', 'date_label',
-                'channel', 'subchannel', 'rev_pct', 'kpi_subchannel_initial',
-                'actual', 'gap', 'kpi_subchannel_adjustment',
-                'created_at', 'updated_at'
+                'channel', 'subchannel', 'store_name', 'rev_pct', 
+                'kpi_subchannel_initial', 'actual', 'gap', 
+                'kpi_subchannel_adjustment', 'created_at', 'updated_at'
             ]
             self.client.insert("hskcdp.kpi_subchannel", data_to_insert, column_names=columns)
             

@@ -122,7 +122,7 @@ class KPISubChannelMetadataCalculator:
             if total_pct == 0:
                 continue
             
-            # Bước 1: Xóa row ECOM cũ (Unknown hoặc bất kỳ subchannel nào)
+            # Bước 1: Xóa row ECOM cũ
             delete_query = f"""
                 ALTER TABLE hskcdp.kpi_subchannel_metadata
                 DELETE
@@ -140,7 +140,7 @@ class KPISubChannelMetadataCalculator:
                 if pct > 0:
                     rows_to_insert.append([
                         target_year, target_month, priority_label,
-                        'ECOM', subchannel,
+                        'ECOM', subchannel, subchannel, # store_name = subchannel for ECOM
                         float(pct), float(pct),
                         now, now
                     ])
@@ -150,7 +150,7 @@ class KPISubChannelMetadataCalculator:
                     "hskcdp.kpi_subchannel_metadata",
                     rows_to_insert,
                     column_names=[
-                        'year', 'month', 'date_label', 'channel', 'subchannel',
+                        'year', 'month', 'date_label', 'channel', 'subchannel', 'store_name',
                         'rev_pct', 'rev_pct_adj', 'created_at', 'updated_at'
                     ]
                 )
@@ -179,14 +179,24 @@ class KPISubChannelMetadataCalculator:
             db_label_data = revenue_by_subchannel_db.get(date_label, {})
             
             for channel in self.constants.ALL_CHANNELS:
-                subchannels = db_label_data.get(channel, {})
-                total_channel_revenue = sum(subchannels.values())
+                channel_data = db_label_data.get(channel, {})
+                
+                # Tính tổng channel revenue trực tiếp từ các store
+                total_channel_revenue = 0
+                for stores in channel_data.values():
+                    total_channel_revenue += sum(stores.values())
                 
                 if total_channel_revenue == 0:
-                    subchannels = {'Unknown': 1.0}
+                    # Fallback
+                    items = [('Unknown', 'Unknown', 1.0)]
                     total_channel_revenue = 1.0
+                else:
+                    items = []
+                    for subchannel, stores in channel_data.items():
+                        for store_name, revenue in stores.items():
+                            items.append((subchannel, store_name, revenue))
                     
-                for subchannel, revenue in subchannels.items():
+                for subchannel, store_name, revenue in items:
                     rev_pct = revenue / total_channel_revenue
                     rev_pct_adj = rev_pct
                     
@@ -196,6 +206,7 @@ class KPISubChannelMetadataCalculator:
                         'date_label': date_label,
                         'channel': channel,
                         'subchannel': subchannel,
+                        'store_name': store_name,
                         'rev_pct': float(rev_pct),
                         'rev_pct_adj': float(rev_pct_adj)
                     })
@@ -206,6 +217,7 @@ class KPISubChannelMetadataCalculator:
                         date_label,
                         channel,
                         subchannel,
+                        store_name,
                         float(rev_pct),
                         float(rev_pct_adj),
                         now,
@@ -214,8 +226,8 @@ class KPISubChannelMetadataCalculator:
                     
         if data_to_insert:
             columns = [
-                'year', 'month', 'date_label', 'channel', 'subchannel', 'rev_pct', 'rev_pct_adj',
-                'created_at', 'updated_at'
+                'year', 'month', 'date_label', 'channel', 'subchannel', 'store_name',
+                'rev_pct', 'rev_pct_adj', 'created_at', 'updated_at'
             ]
             self.client.insert("hskcdp.kpi_subchannel_metadata", data_to_insert, column_names=columns)
 

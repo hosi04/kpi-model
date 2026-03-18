@@ -1088,11 +1088,13 @@ class RevenueQueryHelper:
                     ELSE 'ECOM'
                 END as channel,
                 CASE 
-                    WHEN platform = 'OFFLINE_HASAKI' THEN COALESCE(store_name, 'Unknown')
-                    WHEN platform = 'ONLINE_HASAKI' THEN COALESCE(sub_channel, 'Unknown')
-                    WHEN platform = 'ECOM' THEN COALESCE(sub_channel, 'Unknown')
-                    ELSE 'Unknown'
+                    WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE'
+                    ELSE COALESCE(sub_channel, 'Unknown')
                 END as subchannel,
+                CASE 
+                    WHEN platform = 'OFFLINE_HASAKI' THEN COALESCE(store_name, 'Unknown')
+                    ELSE COALESCE(sub_channel, 'Unknown')
+                END as store_name,
                 SUM(COALESCE(total_amount, 0)) as revenue
             FROM hskcdp.object_sql_transaction_details AS td FINAL
             INNER JOIN hskcdp.dim_date AS dd
@@ -1100,7 +1102,7 @@ class RevenueQueryHelper:
             WHERE toDate(td.created_at) >= today() - INTERVAL 3 MONTH
               AND dd.priority_label IN ({date_labels_str})
               AND td.status NOT IN ('Canceled', 'Cancel')
-            GROUP BY dd.priority_label, channel, subchannel
+            GROUP BY dd.priority_label, channel, subchannel, store_name
         """
         
         result = self.client.query(query)
@@ -1110,14 +1112,18 @@ class RevenueQueryHelper:
             date_label = str(row[0])
             channel = str(row[1])
             subchannel = str(row[2])
-            revenue = float(row[3])
+            store_name = str(row[3])
+            revenue = float(row[4])
             
             if date_label not in revenue_by_subchannel:
                 revenue_by_subchannel[date_label] = {}
             if channel not in revenue_by_subchannel[date_label]:
                 revenue_by_subchannel[date_label][channel] = {}
                 
-            revenue_by_subchannel[date_label][channel][subchannel] = revenue
+            if subchannel not in revenue_by_subchannel[date_label][channel]:
+                revenue_by_subchannel[date_label][channel][subchannel] = {}
+            
+            revenue_by_subchannel[date_label][channel][subchannel][store_name] = revenue
             
         return revenue_by_subchannel
 
@@ -1140,6 +1146,7 @@ class RevenueQueryHelper:
                 c.date_label,
                 c.channel,
                 s.subchannel,
+                s.store_name,
                 s.rev_pct,
                 c.kpi_channel_initial,
                 c.kpi_channel_adjustment
@@ -1149,6 +1156,7 @@ class RevenueQueryHelper:
                     date_label,
                     channel,
                     subchannel,
+                    store_name,
                     rev_pct
                 FROM hskcdp.kpi_subchannel_metadata FINAL
                 WHERE year = {target_year}
@@ -1162,13 +1170,12 @@ class RevenueQueryHelper:
                   (c.month = 11 AND c.day BETWEEN 10 AND 12) OR
                   (c.month = 12 AND c.day BETWEEN 11 AND 13)
               )
-            ORDER BY c.calendar_date, c.channel, s.subchannel
+            ORDER BY c.calendar_date, c.channel, s.subchannel, s.store_name
         """
         
         result = self.client.query(query)
         kpi_subchannel_data = []
         for row in result.result_rows:
-            kpi_channel_adjustment = row[9] if len(row) > 9 and row[9] is not None else None
             kpi_subchannel_data.append({
                 'calendar_date': row[0],
                 'year': int(row[1]),
@@ -1177,9 +1184,10 @@ class RevenueQueryHelper:
                 'date_label': str(row[4]),
                 'channel': str(row[5]),
                 'subchannel': str(row[6]),
-                'rev_pct': Decimal(str(row[7])),
-                'kpi_channel_initial': Decimal(str(row[8])),
-                'kpi_channel_adjustment': Decimal(str(kpi_channel_adjustment)) if kpi_channel_adjustment is not None else None
+                'store_name': str(row[7]),
+                'rev_pct': Decimal(str(row[8])),
+                'kpi_channel_initial': Decimal(str(row[9])),
+                'kpi_channel_adjustment': Decimal(str(row[10])) if row[10] is not None else None
             })
             
         return kpi_subchannel_data
@@ -1202,17 +1210,19 @@ class RevenueQueryHelper:
                     ELSE 'ECOM'
                 END as channel,
                 CASE 
-                    WHEN platform = 'OFFLINE_HASAKI' THEN COALESCE(store_name, 'Unknown')
-                    WHEN platform = 'ONLINE_HASAKI' THEN COALESCE(sub_channel, 'Unknown')
-                    WHEN platform = 'ECOM' THEN COALESCE(sub_channel, 'Unknown')
-                    ELSE 'Unknown'
+                    WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE'
+                    ELSE COALESCE(sub_channel, 'Unknown')
                 END as subchannel,
+                CASE 
+                    WHEN platform = 'OFFLINE_HASAKI' THEN COALESCE(store_name, 'Unknown')
+                    ELSE COALESCE(sub_channel, 'Unknown')
+                END as store_name,
                 SUM(COALESCE(total_amount, 0)) as actual_amount
             FROM hskcdp.object_sql_transaction_details FINAL
             WHERE toYear(created_at) = {target_year}
               AND toMonth(created_at) = {target_month}
               AND status NOT IN ('Canceled', 'Cancel')
-            GROUP BY calendar_date, channel, subchannel
+            GROUP BY calendar_date, channel, subchannel, store_name
         """
         
         result = self.client.query(query)
@@ -1222,13 +1232,16 @@ class RevenueQueryHelper:
             calendar_date = row[0]
             channel = str(row[1])
             subchannel = str(row[2])
-            actual_amount = float(row[3])
+            store_name = str(row[3])
+            actual_amount = float(row[4])
             
             if calendar_date not in actual_by_date:
                 actual_by_date[calendar_date] = {}
             if channel not in actual_by_date[calendar_date]:
                 actual_by_date[calendar_date][channel] = {}
+            if subchannel not in actual_by_date[calendar_date][channel]:
+                actual_by_date[calendar_date][channel][subchannel] = {}
                 
-            actual_by_date[calendar_date][channel][subchannel] = actual_amount
+            actual_by_date[calendar_date][channel][subchannel][store_name] = actual_amount
             
         return actual_by_date
