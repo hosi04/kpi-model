@@ -12,63 +12,216 @@ class KPISubChannelMetadataCalculator:
         self.constants = constants
         self.revenue_helper = RevenueQueryHelper()
     
+    def check_metadata_annually_exists(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> bool:
+        query = f"""
+            SELECT COUNT(*) 
+            FROM hskcdp.metadata_annually
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        
+        result = self.client.query(query)
+        count = result.result_rows[0][0] if result.result_rows else 0
+        
+        return count > 0
+
+    def get_metadata_annually_data(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> List[Dict]:
+        query = f"""
+            SELECT 
+                year, 
+                month, 
+                priority_label, 
+                pct_shopee, 
+                pct_tiktok, 
+                pct_lazada
+            FROM hskcdp.metadata_annually
+            WHERE year = {target_year}
+              AND month = {target_month}
+        """
+        
+        result = self.client.query(query)
+        data = []
+        
+        for row in result.result_rows:
+            data.append({
+                'year': int(row[0]),
+                'month': int(row[1]),
+                'priority_label': str(row[2]),
+                'pct_shopee': Decimal(str(row[3])) if row[3] is not None else Decimal('0'),
+                'pct_tiktok': Decimal(str(row[4])) if row[4] is not None else Decimal('0'),
+                'pct_lazada': Decimal(str(row[5])) if row[5] is not None else Decimal('0')
+            })
+        
+        return data
+
+    # def update_subchannel_metadata_from_annually(
+    #     self,
+    #     target_year: int,
+    #     target_month: int
+    # ) -> None:
+    #     annually_data = self.get_metadata_annually_data(target_year, target_month)
+        
+    #     if not annually_data:
+    #         return
+        
+    #     for row in annually_data:
+    #         priority_label = row['priority_label'].replace("'", "''")
+            
+    #         # Map subchannels cho channel ECOM
+    #         ecom_mappings = {
+    #             'SHOPEE': row['pct_shopee'],
+    #             'TIKTOK': row['pct_tiktok'],
+    #             'LAZADA': row['pct_lazada']
+    #         }
+            
+    #         for subchannel, pct in ecom_mappings.items():
+    #             if pct > 0:
+    #                 update_query = f"""
+    #                     ALTER TABLE hskcdp.kpi_subchannel_metadata
+    #                     UPDATE 
+    #                         rev_pct = toDecimal64({pct}, 15),
+    #                         rev_pct_adj = toDecimal64({pct}, 15)
+    #                     WHERE year = {target_year}
+    #                       AND month = {target_month}
+    #                       AND date_label = '{priority_label}'
+    #                       AND channel = 'ECOM'
+    #                       AND subchannel = '{subchannel}'
+    #                 """
+    #                 self.client.command(update_query)
+
+
+    def update_subchannel_metadata_from_annually(
+        self,
+        target_year: int,
+        target_month: int
+    ) -> None:
+        annually_data = self.get_metadata_annually_data(target_year, target_month)
+        
+        if not annually_data:
+            return
+        
+        for row in annually_data:
+            priority_label = row['priority_label'].replace("'", "''")
+            
+            ecom_mappings = {
+                'Shopee': row['pct_shopee'],
+                'Tiktok': row['pct_tiktok'],
+                'Lazada': row['pct_lazada']
+            }
+            
+            # Validate tổng pct
+            total_pct = sum(ecom_mappings.values())
+            if total_pct == 0:
+                continue
+            
+            # Bước 1: Xóa row ECOM cũ (Unknown hoặc bất kỳ subchannel nào)
+            delete_query = f"""
+                ALTER TABLE hskcdp.kpi_subchannel_metadata
+                DELETE
+                WHERE year = {target_year}
+                AND month = {target_month}
+                AND date_label = '{priority_label}'
+                AND channel = 'ECOM'
+            """
+            self.client.command(delete_query)
+            
+            # Bước 2: Insert đúng subchannels từ metadata_annually
+            now = datetime.now()
+            rows_to_insert = []
+            for subchannel, pct in ecom_mappings.items():
+                if pct > 0:
+                    rows_to_insert.append([
+                        target_year, target_month, priority_label,
+                        'ECOM', subchannel,
+                        float(pct), float(pct),
+                        now, now
+                    ])
+            
+            if rows_to_insert:
+                self.client.insert(
+                    "hskcdp.kpi_subchannel_metadata",
+                    rows_to_insert,
+                    column_names=[
+                        'year', 'month', 'date_label', 'channel', 'subchannel',
+                        'rev_pct', 'rev_pct_adj', 'created_at', 'updated_at'
+                    ]
+                )
+                print(f"[INFO] Updated ECOM subchannels for '{priority_label}': {list(ecom_mappings.keys())}")
+
+
     def calculate_and_save_kpi_subchannel_metadata(
         self,
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        # Lấy doanh thu 3 tháng gần nhất theo channel và subchannel
-        revenue_by_subchannel_db = self.revenue_helper.get_subchannel_revenue_last_3_months()
+        dim_dates = self.revenue_helper.get_dim_dates_for_month_excluding_double_days(target_year, target_month)
+        actual_labels = list(set(d['date_label'] for d in dim_dates))
         
-        # Đảm bảo TẤT CẢ các channel đều có mặt để kpi_subchannel_initial không bị rỗng/thiếu hụt
-        revenue_by_subchannel = {}
-        for ch in self.constants.ALL_CHANNELS:
-            revenue_by_subchannel[ch] = revenue_by_subchannel_db.get(ch, {})
-            
+        if not actual_labels:
+            print(f"No labels found for month {target_month}/{target_year}.")
+            return []
+
+        revenue_by_subchannel_db = self.revenue_helper.get_subchannel_revenue_last_3_months(actual_labels)
+        
         results = []
         data_to_insert = []
         now = datetime.now()
         
-        for channel, subchannels in revenue_by_subchannel.items():
-            # Tính tổng doanh thu của channel đó
-            total_channel_revenue = sum(subchannels.values())
+        for date_label in actual_labels:
+            db_label_data = revenue_by_subchannel_db.get(date_label, {})
             
-            # Nếu channel này KHÔNG TRẢ VỀ DATA (mới hoặc không có số), tự gán thành 1 subchannel mặc định 'Unknown' = 100%
-            if total_channel_revenue == 0:
-                subchannels = {'Unknown': 1.0}
-                total_channel_revenue = 1.0
+            for channel in self.constants.ALL_CHANNELS:
+                subchannels = db_label_data.get(channel, {})
+                total_channel_revenue = sum(subchannels.values())
                 
-            for subchannel, revenue in subchannels.items():
-                rev_pct = revenue / total_channel_revenue
-                # rev_pct_adj ban đầu bằng rev_pct, có thể update sau nếu có logic thêm
-                rev_pct_adj = rev_pct
-                
-                results.append({
-                    'year': target_year,
-                    'month': target_month,
-                    'channel': channel,
-                    'subchannel': subchannel,
-                    'rev_pct': float(rev_pct),
-                    'rev_pct_adj': float(rev_pct_adj)
-                })
-                
-                data_to_insert.append([
-                    target_year,
-                    target_month,
-                    channel,
-                    subchannel,
-                    float(rev_pct),
-                    float(rev_pct_adj),
-                    now,
-                    now
-                ])
-                
+                if total_channel_revenue == 0:
+                    subchannels = {'Unknown': 1.0}
+                    total_channel_revenue = 1.0
+                    
+                for subchannel, revenue in subchannels.items():
+                    rev_pct = revenue / total_channel_revenue
+                    rev_pct_adj = rev_pct
+                    
+                    results.append({
+                        'year': target_year,
+                        'month': target_month,
+                        'date_label': date_label,
+                        'channel': channel,
+                        'subchannel': subchannel,
+                        'rev_pct': float(rev_pct),
+                        'rev_pct_adj': float(rev_pct_adj)
+                    })
+                    
+                    data_to_insert.append([
+                        target_year,
+                        target_month,
+                        date_label,
+                        channel,
+                        subchannel,
+                        float(rev_pct),
+                        float(rev_pct_adj),
+                        now,
+                        now
+                    ])
+                    
         if data_to_insert:
             columns = [
-                'year', 'month', 'channel', 'subchannel', 'rev_pct', 'rev_pct_adj',
+                'year', 'month', 'date_label', 'channel', 'subchannel', 'rev_pct', 'rev_pct_adj',
                 'created_at', 'updated_at'
             ]
             self.client.insert("hskcdp.kpi_subchannel_metadata", data_to_insert, column_names=columns)
+
+        if self.check_metadata_annually_exists(target_year, target_month):
+            print(f"Found annual metadata for {target_month}/{target_year}, updating ECOM subchannels...")
+            self.update_subchannel_metadata_from_annually(target_year, target_month)
                 
         return results
 

@@ -1073,13 +1073,15 @@ class RevenueQueryHelper:
 
     # KPI SUBCHANNEL METADATA RELATED QUERIES
     
-    def get_subchannel_revenue_last_3_months(self) -> Dict[str, Dict[str, float]]:
+    def get_subchannel_revenue_last_3_months(self, date_labels: List[str]) -> Dict[str, Dict[str, Dict[str, float]]]:
         """
         Lấy revenue theo channel và subchannel từ object_sql_transaction_details (3 tháng gần nhất)
-        Returns: dict {channel: {subchannel: revenue}}
+        Returns: dict {date_label: {channel: {subchannel: revenue}}}
         """
+        date_labels_str = ','.join([f"'{dl}'" for dl in date_labels])
         query = f"""
             SELECT 
+                dd.priority_label AS date_label, 
                 CASE 
                     WHEN platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
                     WHEN platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
@@ -1092,24 +1094,30 @@ class RevenueQueryHelper:
                     ELSE 'Unknown'
                 END as subchannel,
                 SUM(COALESCE(total_amount, 0)) as revenue
-            FROM hskcdp.object_sql_transaction_details FINAL
-            WHERE toDate(created_at) >= today() - INTERVAL 3 MONTH
-              AND status NOT IN ('Canceled', 'Cancel')
-            GROUP BY channel, subchannel
+            FROM hskcdp.object_sql_transaction_details AS td FINAL
+            INNER JOIN hskcdp.dim_date AS dd
+                ON toDate(td.created_at) = dd.calendar_date
+            WHERE toDate(td.created_at) >= today() - INTERVAL 3 MONTH
+              AND dd.priority_label IN ({date_labels_str})
+              AND td.status NOT IN ('Canceled', 'Cancel')
+            GROUP BY dd.priority_label, channel, subchannel
         """
         
         result = self.client.query(query)
         
         revenue_by_subchannel = {}
         for row in result.result_rows:
-            channel = str(row[0])
-            subchannel = str(row[1])
-            revenue = float(row[2])
+            date_label = str(row[0])
+            channel = str(row[1])
+            subchannel = str(row[2])
+            revenue = float(row[3])
             
-            if channel not in revenue_by_subchannel:
-                revenue_by_subchannel[channel] = {}
+            if date_label not in revenue_by_subchannel:
+                revenue_by_subchannel[date_label] = {}
+            if channel not in revenue_by_subchannel[date_label]:
+                revenue_by_subchannel[date_label][channel] = {}
                 
-            revenue_by_subchannel[channel][subchannel] = revenue
+            revenue_by_subchannel[date_label][channel][subchannel] = revenue
             
         return revenue_by_subchannel
 
@@ -1138,13 +1146,14 @@ class RevenueQueryHelper:
             FROM (SELECT * FROM hskcdp.kpi_channel FINAL) AS c 
             JOIN (
                 SELECT 
+                    date_label,
                     channel,
                     subchannel,
                     rev_pct
                 FROM hskcdp.kpi_subchannel_metadata FINAL
                 WHERE year = {target_year}
                   AND month = {target_month}
-            ) AS s ON c.channel = s.channel
+            ) AS s ON c.channel = s.channel AND c.date_label = s.date_label
             WHERE c.year = {target_year}
               AND c.month = {target_month}
               AND NOT (
