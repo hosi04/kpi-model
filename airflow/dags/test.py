@@ -94,15 +94,6 @@ with DAG(
         ),
     )
 
-    # trigger_kpi_month_after_recalc = TriggerDagRunOperator(
-    #     task_id="trigger_kpi_month_after_recalc",
-    #     trigger_dag_id="kpi_month",
-    #     wait_for_completion=False,
-    #     reset_dag_run=True,
-    # )
-
-    # kpi_month_recalculate_after_marketing_task >> trigger_kpi_month_after_recalc
-
 # Or pass via conf when triggering: {"kpi_day_metadata_target_month": "2"}
 with DAG(
     dag_id="kpi_day_metadata_manual",
@@ -173,11 +164,11 @@ with DAG(
         bash_command=f"{PYTHON_CMD} -m src.etl.kpi_channel_metadata --target-month {{{{ dag_run.conf.get('kpi_channel_metadata_target_month', '') }}}}",
     )
 
-# kpi_channel - triggered by kpi_day
+# kpi_channel
 with DAG(
     dag_id="kpi_channel",
     start_date=datetime(2026, 1, 1),
-    schedule="35 * * * *",  # Also scheduled hourly, but triggered by kpi_day
+    schedule="35 * * * *",
     default_args=default_args,
     catchup=False,
     tags=["cdp-kpi-models", "hourly", "kpi_channel"],
@@ -205,7 +196,7 @@ with DAG(
 with DAG(
     dag_id="kpi_brand",
     start_date=datetime(2026, 1, 1),
-    schedule="40 * * * *",
+    schedule="45 * * * *",
     default_args=default_args,
     catchup=False,
     tags=["cdp-kpi-models", "hourly", "kpi_brand"],
@@ -261,7 +252,7 @@ with DAG(
 with DAG(
     dag_id="kpi_sku",
     start_date=datetime(2026, 1, 1),
-    schedule="45 * * * *",
+    schedule="50 * * * *",
     default_args=default_args,
     catchup=False,
     tags=["cdp-kpi-models", "hourly", "kpi_sku"],
@@ -343,4 +334,60 @@ with DAG(
     kpi_sku_metadata_manual_task = BashOperator(
         task_id="kpi_sku_metadata_manual_task",
         bash_command=f"{PYTHON_CMD} -m src.etl.kpi_sku_metadata --target-month {{{{ dag_run.conf.get('kpi_sku_metadata_target_month', '') }}}}",
+    )
+
+# kpi_subchannel_metadata
+with DAG(
+    dag_id="kpi_subchannel_metadata",
+    start_date=datetime(2026, 1, 1),
+    schedule="30 0 25 * *",
+    default_args=default_args,
+    catchup=False,
+    tags=["cdp-kpi-models","monthly", "kpi_subchannel_metadata"],
+) as dag:
+    kpi_subchannel_metadata_task = BashOperator(
+        task_id="kpi_subchannel_metadata_task",
+        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_subchannel_metadata",
+    )
+
+# Or pass via conf when triggering: {"kpi_subchannel_metadata_target_month": "2"}
+with DAG(
+    dag_id="kpi_subchannel_metadata_manual",
+    start_date=datetime(2026, 1, 1),
+    schedule=None,
+    default_args=default_args,
+    catchup=False,
+    tags=["cdp-kpi-models", "manual", "kpi_subchannel_metadata"],
+) as dag:
+    kpi_subchannel_metadata_manual_task = BashOperator(
+        task_id="kpi_subchannel_metadata_manual_task",
+        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_subchannel_metadata --target-month {{{{ dag_run.conf.get('kpi_subchannel_metadata_target_month', '') }}}}",
+    )
+
+# kpi_subchannel
+with DAG(
+    dag_id="kpi_subchannel",
+    start_date=datetime(2026, 1, 1),
+    schedule="40 * * * *",
+    default_args=default_args,
+    catchup=False,
+    tags=["cdp-kpi-models", "hourly", "kpi_subchannel"],
+) as dag:
+    kpi_subchannel_task = BashOperator(
+        task_id="kpi_subchannel_task",
+        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_subchannel",
+    )
+
+# Or pass via conf when triggering: {"kpi_subchannel_target_month": "2"}
+with DAG(
+    dag_id="kpi_subchannel_manual",
+    start_date=datetime(2026, 1, 1),
+    schedule=None,
+    default_args=default_args,
+    catchup=False,
+    tags=["cdp-kpi-models", "manual", "kpi_subchannel"],
+) as dag:
+    kpi_subchannel_manual_task = BashOperator(
+        task_id="kpi_subchannel_manual_task",
+        bash_command=f"{PYTHON_CMD} -m src.etl.kpi_subchannel --target-month {{{{ dag_run.conf.get('kpi_subchannel_target_month', '') }}}}",
     )

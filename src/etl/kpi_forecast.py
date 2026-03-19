@@ -16,106 +16,73 @@ class KPIForecastCalculator:
         self,
         target_year: int,
         target_month: int
-    ) -> List[Dict]:
+    ) -> List:
         today = date.today()
-        current_hour = datetime.now().hour
+        now = datetime.now()
         
         query = f"""
             SELECT 
-                calendar_date,
-                channel,
-                brand_name,
-                sku
-            FROM hskcdp.kpi_sku FINAL
-            WHERE toYear(calendar_date) = {target_year}
-              AND toMonth(calendar_date) = {target_month}
-            GROUP BY calendar_date, channel, brand_name, sku
-            ORDER BY calendar_date, channel, brand_name, sku
+                toDate(t.created_at) as calendar_date,
+                CASE 
+                    WHEN t.platform = 'ONLINE_HASAKI' THEN 'ONLINE_HASAKI'
+                    WHEN t.platform = 'OFFLINE_HASAKI' THEN 'OFFLINE_HASAKI'
+                    ELSE 'ECOM'
+                END as channel,
+                t.brand_name,
+                CAST(t.sku AS String) AS sku_str,
+                SUM(COALESCE(t.total_amount, 0)) as actual_amount
+            FROM hskcdp.object_sql_transaction_details AS t FINAL
+            INNER JOIN (
+                SELECT sku 
+                FROM hskcdp.kpi_sku_metadata FINAL
+                WHERE year = {target_year} AND month = {target_month}
+            ) AS m ON CAST(t.sku AS String) = CAST(m.sku AS String)
+            WHERE toYear(t.created_at) = {target_year}
+              AND toMonth(t.created_at) = {target_month}
+              AND t.status NOT IN ('Canceled', 'Cancel')
+            GROUP BY calendar_date, channel, t.brand_name, sku_str
+            ORDER BY calendar_date, channel, t.brand_name, sku_str
         """
         
         result = self.client.query(query)
         
-        actual_by_date = self.revenue_helper.get_actual_by_sku_brand_channel_and_date(
-            target_year=target_year,
-            target_month=target_month
-        )
-        
         hourly_revenue_pct_by_channel = self.revenue_helper.get_hourly_revenue_percentage_by_channel(days_back=30)
-        
         max_hour = self.revenue_helper.get_max_hour_from_transaction_details(target_year, target_month)
-        if max_hour is not None:
-            cutoff_hour = max_hour
-        else:
-            cutoff_hour = current_hour
+        cutoff_hour = max_hour if max_hour is not None else now.hour
         
-        until_hour = cutoff_hour + 1
-
-        actual_by_sku_cache = {}
-        
-        now = datetime.now()
         data = []
-        sum_check = 0
+        total_actual_today = Decimal('0')
+        
         for row in result.result_rows:
             calendar_date = row[0]
             channel = str(row[1])
             brand_name = str(row[2])
             sku_name = str(row[3])
+            actual_amount = Decimal(str(row[4]))
             
-            year = calendar_date.year
-            month = calendar_date.month
-            day = calendar_date.day
-            
+            year, month, day = calendar_date.year, calendar_date.month, calendar_date.day
             forecast = Decimal('0')
             
             if calendar_date < today:
-                actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(brand_name, {}).get(sku_name, 0.0)
-                if actual:
-                    forecast = Decimal(str(actual))
-                else:
-                    forecast = Decimal('0')
+                forecast = actual_amount
                 
             elif calendar_date == today:
-                cache_key = calendar_date
-                if cache_key not in actual_by_sku_cache:
-                    # Data return: {channel: {sku: actual}}
-                    actual_by_sku_cache[cache_key] = self.revenue_helper.get_daily_actual_until_hour_by_sku(
-                        target_date=calendar_date,
-                        until_hour=until_hour
-                    )
+                total_actual_today += actual_amount
                 
-                actual_until_hour = Decimal('0')
-                if channel in actual_by_sku_cache[cache_key] and sku_name in actual_by_sku_cache[cache_key][channel]:
-                    actual_until_hour = Decimal(str(actual_by_sku_cache[cache_key][channel][sku_name]))
-                
-                sum_check += actual_until_hour
-
                 channel_pcts = hourly_revenue_pct_by_channel.get(channel, {})
-                cumulative_pct = Decimal('0')
-                for h in range(cutoff_hour + 1):
-                    pct_h_raw = channel_pcts.get(h, 0.0)
-                    cumulative_pct += Decimal(str(pct_h_raw))
+                cumulative_pct = sum(Decimal(str(channel_pcts.get(h, 0.0))) for h in range(cutoff_hour + 1))
 
-                if cumulative_pct > Decimal('0'):
-                    forecast = actual_until_hour / cumulative_pct
+                if cumulative_pct > 0:
+                    forecast = actual_amount / cumulative_pct
                 else:
-                    forecast = Decimal('0')
-                    
-            else:
-                forecast = Decimal('0')
-            
+                    forecast = actual_amount
             
             data.append([
-                calendar_date,
-                year,
-                month,
-                day,
-                channel,
-                brand_name,
-                sku_name,
-                forecast,
-                now
+                calendar_date, year, month, day,
+                channel, brand_name, sku_name, forecast, now
             ])
-        print(f"DEBUG. total_gap: {sum_check}")
+            
+        print(f"DEBUG. total_actual_today_filtered: {total_actual_today}")
         
         if data:
             columns = [
@@ -123,7 +90,10 @@ class KPIForecastCalculator:
                 'channel', 'brand_name', 'sku', 'forecast', 'updated_at'
             ]
             self.client.insert("hskcdp.kpi_forecast", data, column_names=columns)
+            
         return data
+
+
 
 if __name__ == "__main__":
     import sys

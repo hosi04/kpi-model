@@ -40,7 +40,7 @@ class KPIBrandCalculator:
             target_month=target_month
         )
         
-        new_brand_this_month = self.revenue_helper.get_new_brand_this_month()
+        # new_brand_this_month = self.revenue_helper.get_new_brand_this_month()
         
         results = []
         data_to_insert = []
@@ -48,7 +48,7 @@ class KPIBrandCalculator:
         today = date.today()
         
         # Track processed combinations for new/other brands
-        processed_combos = set() # (date, channel, subchannel, store_name, brand_name)
+        processed_combos = set()
 
         # GROUP 1: Brands from metadata (Normal brands)
         for row in kpi_brand_metadata_input:
@@ -65,25 +65,22 @@ class KPIBrandCalculator:
             kpi_brand_init = kpi_sub_init * pct_adj
             actual = Decimal(str(actual_by_date.get(calendar_date, {}).get(channel, {}).get(subchannel, {}).get(store_name, {}).get(brand_name, 0.0)))
             
-            # Adjustment
+            # Adjustment & Forecast
             if calendar_date < today:
                 kpi_brand_adj = actual
                 gap = actual - kpi_brand_init
-            elif calendar_date == today:
-                gap = actual - kpi_brand_init
-            else:
-                gap = Decimal('0')
-                sub_adj = kpi_sub_adj_map.get(calendar_date, {}).get(channel, {}).get(subchannel, {}).get(store_name)
-                kpi_brand_adj = Decimal(str(sub_adj)) * pct_adj if sub_adj is not None else None
-
-            # Forecast
-            if calendar_date < today:
                 forecast = actual
             elif calendar_date == today:
-                forecast = forecast_by_brand_today.get(channel, {}).get(brand_name, Decimal('0'))
+                kpi_brand_adj = forecast_by_brand_today.get(channel, {}).get(brand_name, Decimal('0'))
+                gap = kpi_brand_adj - kpi_brand_init
+                forecast = kpi_brand_adj
             else:
-                sub_forecast = forecast_top_down_sub.get(calendar_date, {}).get(channel, {}).get(subchannel, {}).get(store_name, Decimal('0'))
-                forecast = sub_forecast * pct_adj
+                sub_adj = kpi_sub_adj_map.get(calendar_date, {}).get(channel, {}).get(subchannel, {}).get(store_name)
+                kpi_brand_adj = Decimal(str(sub_adj)) * pct_adj if sub_adj is not None else None
+                gap = Decimal('0')
+                
+                sub_forecast = forecast_top_down_sub.get(calendar_date, {}).get(channel, {}).get(subchannel, {}).get(store_name)
+                forecast = Decimal(str(sub_forecast)) * pct_adj if sub_forecast is not None else None
 
             res_row = {
                 'calendar_date': calendar_date, 'year': row['year'], 'month': row['month'], 'day': row['day'],
@@ -106,9 +103,10 @@ class KPIBrandCalculator:
                             
                             actual = Decimal(str(actual_val))
                             kpi_brand_init = Decimal('0')
-                            kpi_brand_adj = actual if cal_date < today else None
+                            kpi_brand_adj = actual if cal_date < today else forecast_by_brand_today.get(channel, {}).get(brand_name, Decimal('0'))
                             
                             forecast = actual if cal_date < today else forecast_by_brand_today.get(channel, {}).get(brand_name, Decimal('0'))
+                            gap = kpi_brand_adj - kpi_brand_init
                             
                             # Note: Simplified date info from actual record
                             res_row = {

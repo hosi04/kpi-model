@@ -18,10 +18,8 @@ class KPIBrandMetadataCalculator:
         target_month: int,
         interval_days: int = 90
     ) -> List[Dict]:
-        # 1. Fetch data
         revenue_by_brand = self.revenue_helper.get_revenue_by_brand_last_n_days(interval_days=interval_days) 
 
-        # Xác định tháng gần nhất để filter brand có phát sinh doanh thu
         if target_month == 1:
             recent_month, recent_year = 12, target_year - 1
         else:
@@ -32,7 +30,6 @@ class KPIBrandMetadataCalculator:
             target_month=recent_month
         )
 
-        # Filter brands with positive revenue and sold in the recent month
         positive_revenue_brands = {
             brand_name: revenue 
             for brand_name, revenue in revenue_by_brand.items() 

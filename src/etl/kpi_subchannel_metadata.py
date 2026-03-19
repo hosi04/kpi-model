@@ -62,42 +62,6 @@ class KPISubChannelMetadataCalculator:
         
         return data
 
-    # def update_subchannel_metadata_from_annually(
-    #     self,
-    #     target_year: int,
-    #     target_month: int
-    # ) -> None:
-    #     annually_data = self.get_metadata_annually_data(target_year, target_month)
-        
-    #     if not annually_data:
-    #         return
-        
-    #     for row in annually_data:
-    #         priority_label = row['priority_label'].replace("'", "''")
-            
-    #         # Map subchannels cho channel ECOM
-    #         ecom_mappings = {
-    #             'SHOPEE': row['pct_shopee'],
-    #             'TIKTOK': row['pct_tiktok'],
-    #             'LAZADA': row['pct_lazada']
-    #         }
-            
-    #         for subchannel, pct in ecom_mappings.items():
-    #             if pct > 0:
-    #                 update_query = f"""
-    #                     ALTER TABLE hskcdp.kpi_subchannel_metadata
-    #                     UPDATE 
-    #                         rev_pct = toDecimal64({pct}, 15),
-    #                         rev_pct_adj = toDecimal64({pct}, 15)
-    #                     WHERE year = {target_year}
-    #                       AND month = {target_month}
-    #                       AND date_label = '{priority_label}'
-    #                       AND channel = 'ECOM'
-    #                       AND subchannel = '{subchannel}'
-    #                 """
-    #                 self.client.command(update_query)
-
-
     def update_subchannel_metadata_from_annually(
         self,
         target_year: int,

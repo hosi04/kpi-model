@@ -912,7 +912,7 @@ class RevenueQueryHelper:
                 channel, 
                 subchannel,
                 store_name,
-                COALESCE(actual, kpi_subchannel_initial) as forecast_value
+                COALESCE(forecast, 0) as forecast_value
             FROM hskcdp.kpi_subchannel FINAL
             WHERE year = {target_year}
             AND month = {target_month}
@@ -1159,9 +1159,6 @@ class RevenueQueryHelper:
         target_year: int,
         target_month: int
     ) -> List[Dict]:
-        """
-        Lấy kpi_channel_initial từ kpi_channel và kết hợp với rev_pct từ kpi_subchannel_metadata
-        """
         query = f"""
             SELECT
                 c.calendar_date,
@@ -1174,7 +1171,8 @@ class RevenueQueryHelper:
                 s.store_name,
                 s.rev_pct,
                 c.kpi_channel_initial,
-                c.kpi_channel_adjustment
+                c.kpi_channel_adjustment,
+                c.forecast
             FROM (SELECT * FROM hskcdp.kpi_channel FINAL) AS c 
             JOIN (
                 SELECT 
@@ -1212,7 +1210,8 @@ class RevenueQueryHelper:
                 'store_name': str(row[7]),
                 'rev_pct': Decimal(str(row[8])),
                 'kpi_channel_initial': Decimal(str(row[9])),
-                'kpi_channel_adjustment': Decimal(str(row[10])) if row[10] is not None else None
+                'kpi_channel_adjustment': Decimal(str(row[10])) if row[10] is not None else None,
+                'kpi_channel_forecast': Decimal(str(row[11])) if row[11] is not None else None
             })
             
         return kpi_subchannel_data

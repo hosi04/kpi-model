@@ -16,15 +16,12 @@ class KPISubChannelCalculator:
         self,
         target_year: int,
         target_month: int
-    ) -> List[Dict]:
-        
-        # Get kpi_channel_initial and rev_pct 
+    ) -> List[Dict]:        
         kpi_subchannel_metadata_data = self.revenue_helper.get_kpi_channel_with_subchannel_metadata(
             target_year=target_year,
             target_month=target_month
         )
         
-        # Get actual revenue by subchannel, channel and date
         actual_by_date = self.revenue_helper.get_actual_by_subchannel_channel_and_date(
             target_year=target_year,
             target_month=target_month
@@ -47,16 +44,19 @@ class KPISubChannelCalculator:
             rev_pct = row['rev_pct']
             kpi_channel_initial = row['kpi_channel_initial']
             kpi_channel_adjustment = row['kpi_channel_adjustment']
+            kpi_channel_forecast = row.get('kpi_channel_forecast')
             
-            # Tính kpi_subchannel_initial
             kpi_subchannel_initial = kpi_channel_initial * rev_pct
             
-            # Lấy actual của store_name (trong subchannel) nếu có
             actual = actual_by_date.get(calendar_date, {}).get(channel, {}).get(subchannel, {}).get(store_name, 0.0)       
+            actual_decimal = Decimal(str(actual)) if actual is not None else None
             
             if calendar_date < today:
                 kpi_subchannel_adjustment = Decimal(str(actual))
                 gap = Decimal(str(actual)) - kpi_subchannel_initial
+            elif calendar_date == today:
+                kpi_subchannel_adjustment = Decimal('0')
+                gap = kpi_subchannel_adjustment - kpi_subchannel_initial
             else:
                 gap = Decimal('0')
                 if kpi_channel_adjustment is not None:
@@ -64,7 +64,20 @@ class KPISubChannelCalculator:
                 else:
                     kpi_subchannel_adjustment = None
             
-            actual_decimal = Decimal(str(actual)) if actual is not None else None
+            # Forecast
+            forecast = None 
+            if calendar_date < today:
+                forecast = actual_decimal 
+            elif calendar_date == today:
+                # forecast bottom-up = 0
+                forecast = Decimal('0')
+            else:
+                # forecast top-down
+                if kpi_channel_forecast is not None:
+                    forecast = kpi_channel_forecast * rev_pct
+                else:
+                    forecast = None
+            
             gap_decimal = Decimal(str(gap)) if gap is not None else None
             
             results.append({
@@ -80,7 +93,8 @@ class KPISubChannelCalculator:
                 'kpi_subchannel_initial': kpi_subchannel_initial,
                 'actual': actual_decimal,
                 'gap': gap_decimal,
-                'kpi_subchannel_adjustment': kpi_subchannel_adjustment if kpi_subchannel_adjustment is not None else None
+                'kpi_subchannel_adjustment': kpi_subchannel_adjustment if kpi_subchannel_adjustment is not None else None,
+                'forecast': forecast
             })
             
             data_to_insert.append([
@@ -97,6 +111,7 @@ class KPISubChannelCalculator:
                 actual_decimal,
                 gap_decimal,
                 kpi_subchannel_adjustment,
+                forecast,
                 now,
                 now
             ])
@@ -106,7 +121,7 @@ class KPISubChannelCalculator:
                 'calendar_date', 'year', 'month', 'day', 'date_label',
                 'channel', 'subchannel', 'store_name', 'rev_pct', 
                 'kpi_subchannel_initial', 'actual', 'gap', 
-                'kpi_subchannel_adjustment', 'created_at', 'updated_at'
+                'kpi_subchannel_adjustment', 'forecast', 'created_at', 'updated_at'
             ]
             self.client.insert("hskcdp.kpi_subchannel", data_to_insert, column_names=columns)
             
@@ -136,7 +151,6 @@ if __name__ == "__main__":
     
     if target_month is None:
         today = date.today()
-        # Chú ý: khác với kpi_metadata, kpi ngày chạy cho tháng hiện tại
         if today.year == constants.KPI_YEAR_2026:
             target_month = today.month
         else:

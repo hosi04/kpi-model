@@ -336,9 +336,9 @@ if __name__ == "__main__":
     
     if target_month is None:
         today = date.today()
-            target_month = today.month + 1
-            if target_month > 12:
-                target_month = 1
+        target_month = today.month + 1
+        if target_month > 12:
+            target_month = 1
             target_year = today.year + 1
         else:
             target_year = today.year
