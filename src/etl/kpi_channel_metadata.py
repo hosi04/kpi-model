@@ -11,235 +11,100 @@ class KPIDayChannelMetadataCalculator:
         self.client = get_client()
         self.constants = constants
         self.revenue_helper = RevenueQueryHelper()
-    
-    def calculate_channel_revenue_percentage(
-        self,
-        date_labels: List[str] = None
-    ) -> Dict[str, Dict[str, Decimal]]:
-        if date_labels is None:
-            date_labels = self.constants.DATE_LABELS
-        
-        total_revenue_by_label = self.revenue_helper.get_total_revenue_by_date_label_last_3_months(
-            date_labels
-        )
-        
-        channel_revenue_by_label = self.revenue_helper.get_revenue_by_date_label_and_channel_from_platform_last_3_months(
-            date_labels
-        )
 
-        channel_percentage = {}
-        
-        for date_label, channels in channel_revenue_by_label.items():
-            total_revenue = total_revenue_by_label.get(date_label, 0)
-            
-            if date_label not in channel_percentage:
-                channel_percentage[date_label] = {}
-            
-            for channel, revenue in channels.items():
-                if total_revenue > 0:
-                    percentage = revenue / total_revenue
-                else:
-                    percentage = 0.0
-                
-                channel_percentage[date_label][channel] = Decimal(percentage)
-        
-        return channel_percentage
-    
-    def calculate_kpi_day_channel_metadata(
-        self,
-        target_year: int,
-        target_month: int,
-        date_labels: List[str] = None
-    ) -> List[Dict]:
-        if date_labels is None:
-            date_labels = self.constants.DATE_LABELS
-        
-        channel_percentage = self.calculate_channel_revenue_percentage(
-            date_labels=date_labels
-        )
-        
-        dim_dates = self.revenue_helper.get_dim_dates_for_month_excluding_double_days(
-            target_year=target_year,
-            target_month=target_month
-        )
-        
-        results = []
-        
-        for dim_date in dim_dates:
-            calendar_date = dim_date['calendar_date']
-            year = dim_date['year']
-            month = dim_date['month']
-            day = dim_date['day']
-            date_label = dim_date['date_label']
-            
-            channels_for_label = channel_percentage.get(date_label, {})
-            
-            for channel in self.constants.ALL_CHANNELS:
-                percentage = channels_for_label.get(channel, 0.0)
-                
-                rev_pct_adjustment = percentage
-                
-                results.append({
-                    'calendar_date': calendar_date,
-                    'year': year,
-                    'month': month,
-                    'day': day,
-                    'date_label': date_label,
-                    'channel': channel,
-                    'rev_pct': Decimal(str(percentage)),
-                    'rev_pct_adjustment': Decimal(str(rev_pct_adjustment))
-                })
-        
-        return results
-    
-    def save_kpi_day_channel_metadata(self, metadata_data: List[Dict]) -> None:
-        if not metadata_data:
-            return
-        
-        now = datetime.now()
-        
-        data = []
-        for row in metadata_data:
-            data.append([
-                row['calendar_date'],
-                row['year'],
-                row['month'],
-                row['day'],
-                row['date_label'],
-                row['channel'],
-                row['rev_pct'],
-                row['rev_pct_adjustment'],
-                now,
-                now
-            ])
-        
-        columns = [
-            'calendar_date', 'year', 'month', 'day', 'date_label',
-            'channel', 'rev_pct', 'rev_pct_adjustment',
-            'created_at', 'updated_at'
-        ]
-        
-        self.client.insert("hskcdp.kpi_channel_metadata", data, column_names=columns)
-    
-    def check_metadata_annually_exists(
-        self,
-        target_year: int,
-        target_month: int
-    ) -> bool:
-        query = f"""
-            SELECT COUNT(*) 
-            FROM hskcdp.metadata_annually
-            WHERE year = {target_year}
-              AND month = {target_month}
-        """
-        
-        result = self.client.query(query)
-        count = result.result_rows[0][0] if result.result_rows else 0
-        
-        return count > 0
-    
-    def get_metadata_annually_data(
-        self,
-        target_year: int,
-        target_month: int
-    ) -> List[Dict]:
-        query = f"""
-            SELECT year, month, priority_label, pct_offline, pct_online, pct_ecom
-            FROM hskcdp.metadata_annually
-            WHERE year = {target_year}
-              AND month = {target_month}
-        """
-        
-        result = self.client.query(query)
-        data = []
-        
-        for row in result.result_rows:
-            data.append({
-                'year': int(row[0]),
-                'month': int(row[1]),
-                'priority_label': str(row[2]),
-                'pct_offline': Decimal(row[3]) if row[3] is not None else 0.0,
-                'pct_online': Decimal(row[4]) if row[4] is not None else 0.0,
-                'pct_ecom': Decimal(row[5]) if row[5] is not None else 0.0
-            })
-        
-        return data
-    
-    def update_channel_metadata_from_annually(
-        self,
-        target_year: int,
-        target_month: int
-    ) -> None:
-        annually_data = self.get_metadata_annually_data(target_year, target_month)
-        
-        if not annually_data:
-            return
-        
-        for row in annually_data:
-            priority_label = row['priority_label'].replace("'", "''")
-            pct_offline = row['pct_offline']
-            pct_online = row['pct_online']
-            pct_ecom = row['pct_ecom']
-            
-            update_offline_query = f"""
-                ALTER TABLE hskcdp.kpi_channel_metadata
-                UPDATE 
-                    rev_pct = toDecimal64({pct_offline}, 15),
-                    rev_pct_adjustment = toDecimal64({pct_offline}, 15)
-                WHERE year = {target_year}
-                  AND month = {target_month}
-                  AND date_label = '{priority_label}'
-                  AND channel = 'OFFLINE_HASAKI'
-            """
-            self.client.command(update_offline_query)
-            
-            update_online_query = f"""
-                ALTER TABLE hskcdp.kpi_channel_metadata
-                UPDATE 
-                    rev_pct = toDecimal64({pct_online}, 15),
-                    rev_pct_adjustment = toDecimal64({pct_online}, 15)
-                WHERE year = {target_year}
-                  AND month = {target_month}
-                  AND date_label = '{priority_label}'
-                  AND channel = 'ONLINE_HASAKI'
-            """
-            self.client.command(update_online_query)
-            
-            update_ecom_query = f"""
-                ALTER TABLE hskcdp.kpi_channel_metadata
-                UPDATE 
-                    rev_pct = toDecimal64({pct_ecom}, 15),
-                    rev_pct_adjustment = toDecimal64({pct_ecom}, 15)
-                WHERE year = {target_year}
-                  AND month = {target_month}
-                  AND date_label = '{priority_label}'
-                  AND channel = 'ECOM'
-            """
-            self.client.command(update_ecom_query)
-    
     def calculate_and_save_kpi_day_channel_metadata(
         self,
         target_year: int,
-        target_month: int,
-        date_labels: List[str] = None
+        target_month: int
     ) -> List[Dict]:
-        metadata_data = self.calculate_kpi_day_channel_metadata(
-            target_year=target_year,
-            target_month=target_month,
-            date_labels=date_labels
-        )
+        date_labels = self.constants.DATE_LABELS
+
+        total_rev_by_label = self.revenue_helper.get_total_revenue_by_date_label_last_3_months(date_labels)
+        channel_rev_by_label = self.revenue_helper.get_revenue_by_date_label_and_channel_from_platform_last_3_months(date_labels)
         
-        self.save_kpi_day_channel_metadata(metadata_data)
+        # Get metadata_annually (replace for UPDATE then)
+        annually_query = f"""
+            SELECT 
+                priority_label, 
+                pct_offline, 
+                pct_online, pct_ecom
+            FROM hskcdp.metadata_annually
+            WHERE year = {target_year} 
+              AND month = {target_month}
+        """
+        annually_rows = self.client.query(annually_query).result_rows
+        annually_map = {
+            row[0]: {
+                'OFFLINE_HASAKI': Decimal(str(row[1])),
+                'ONLINE_HASAKI': Decimal(str(row[2])),
+                'ECOM': Decimal(str(row[3]))
+            } for row in annually_rows
+        }
+
+        # Build mapping pct for each date_label
+        label_channel_pct = {}
+        for label in date_labels:
+            total = total_rev_by_label.get(label, 0)
+            label_channel_pct[label] = {}
+            
+            # Priority get from metadata_annually
+            if label in annually_map:
+                label_channel_pct[label] = annually_map[label]
+            else:
+                # If not in annually, calculate from historical data
+                for channel in self.constants.ALL_CHANNELS:
+                    rev = channel_rev_by_label.get(label, {}).get(channel, 0.0)
+                    if total > 0:
+                        pct = Decimal(str(rev)) / Decimal(str(total))
+                    else:
+                        pct = Decimal('0')
+                    label_channel_pct[label][channel] = pct
+
+        # Apply scale for dim_dates of target month
+        dim_dates = self.revenue_helper.get_dim_dates_for_month_excluding_double_days(target_year, target_month)
         
-        if self.check_metadata_annually_exists(target_year, target_month):
-            self.update_channel_metadata_from_annually(target_year, target_month)
-        
-        return metadata_data
+        results = []
+        data_to_insert = []
+        now = datetime.now()
+
+        for dim_date in dim_dates:
+            date_label = dim_date['date_label']
+            pct_map = label_channel_pct.get(date_label, {})
+            
+            for channel in self.constants.ALL_CHANNELS:
+                pct = pct_map.get(channel, Decimal('0'))
+                
+                results.append({
+                    'calendar_date': dim_date['calendar_date'],
+                    'year': dim_date['year'],
+                    'month': dim_date['month'],
+                    'day': dim_date['day'],
+                    'date_label': date_label,
+                    'channel': channel,
+                    'rev_pct': pct,
+                    'rev_pct_adjustment': pct
+                })
+                
+                data_to_insert.append([
+                    dim_date['calendar_date'], dim_date['year'], dim_date['month'], dim_date['day'],
+                    date_label, channel, pct, pct, now, now
+                ])
+
+        # Save to ClickHouse
+        if data_to_insert:
+            columns = [
+                'calendar_date', 'year', 'month', 'day', 'date_label',
+                'channel', 'rev_pct', 'rev_pct_adjustment',
+                'created_at', 'updated_at'
+            ]
+            self.client.insert("hskcdp.kpi_channel_metadata", data_to_insert, column_names=columns)
+            print(f"[INFO] Successfully inserted {len(data_to_insert)} records into kpi_channel_metadata")
+
+        return results
 
 
 if __name__ == "__main__":
     import sys
-    
     constants = Constants()
     calculator = KPIDayChannelMetadataCalculator(constants)
     
@@ -250,32 +115,17 @@ if __name__ == "__main__":
         i = 1
         while i < len(sys.argv):
             if sys.argv[i] == "--target-month" and i + 1 < len(sys.argv):
-                target_month = int(sys.argv[i + 1])
-                i += 2
+                target_month = int(sys.argv[i + 1]); i += 2
             elif sys.argv[i] == "--target-year" and i + 1 < len(sys.argv):
-                target_year = int(sys.argv[i + 1])
-                i += 2
-            else:
-                i += 1
+                target_year = int(sys.argv[i + 1]); i += 2
+            else: i += 1
     
     if target_month is None:
         today = date.today()
         target_month = today.month + 1
         if target_month > 12:
-            target_month = 1
-            target_year = today.year + 1
-        else:
-            target_year = today.year
-    
-    if target_month < 1 or target_month > 12:
-        print(f"Error: target_month must be between 1 and 12, received: {target_month}")
-        sys.exit(1)
+            target_month = 1; target_year = today.year + 1
+        else: target_year = today.year
     
     print(f"Calculating kpi_day_channel_metadata for month {target_month}/{target_year}...")
-    metadata_data = calculator.calculate_and_save_kpi_day_channel_metadata(
-        target_year=target_year,
-        target_month=target_month
-    )
-    
-    print(f"Successfully saved {len(metadata_data)} kpi_channel_metadata records")
-
+    calculator.calculate_and_save_kpi_day_channel_metadata(target_year, target_month)
