@@ -104,7 +104,7 @@ class KPISubChannelMetadataCalculator:
                 if pct > 0:
                     rows_to_insert.append([
                         target_year, target_month, priority_label,
-                        'ECOM', subchannel, subchannel, # store_name = subchannel for ECOM
+                        'ECOM', subchannel, subchannel,  # store_name = subchannel for ECOM
                         float(pct), float(pct),
                         now, now
                     ])
@@ -119,7 +119,6 @@ class KPISubChannelMetadataCalculator:
                     ]
                 )
                 print(f"[INFO] Updated ECOM subchannels for '{priority_label}': {list(ecom_mappings.keys())}")
-
 
     def calculate_and_save_kpi_subchannel_metadata(
         self,
@@ -142,23 +141,25 @@ class KPISubChannelMetadataCalculator:
         for date_label in actual_labels:
             db_label_data = revenue_by_subchannel_db.get(date_label, {})
             
-            for channel in self.constants.ALL_CHANNELS:
+            # Chỉ loop qua các channel có doanh thu thực tế, bỏ qua channel không có data
+            for channel in db_label_data.keys():
                 channel_data = db_label_data.get(channel, {})
                 
                 # Tính tổng channel revenue trực tiếp từ các store
-                total_channel_revenue = 0
-                for stores in channel_data.values():
-                    total_channel_revenue += sum(stores.values())
+                total_channel_revenue = sum(
+                    revenue
+                    for stores in channel_data.values()
+                    for revenue in stores.values()
+                )
                 
                 if total_channel_revenue == 0:
-                    # Fallback
-                    items = [('Unknown', 'Unknown', 1.0)]
-                    total_channel_revenue = 1.0
-                else:
-                    items = []
-                    for subchannel, stores in channel_data.items():
-                        for store_name, revenue in stores.items():
-                            items.append((subchannel, store_name, revenue))
+                    continue
+                
+                items = [
+                    (subchannel, store_name, revenue)
+                    for subchannel, stores in channel_data.items()
+                    for store_name, revenue in stores.items()
+                ]
                     
                 for subchannel, store_name, revenue in items:
                     rev_pct = revenue / total_channel_revenue

@@ -1099,10 +1099,6 @@ class RevenueQueryHelper:
     # KPI SUBCHANNEL METADATA RELATED QUERIES
     
     def get_subchannel_revenue_last_3_months(self, date_labels: List[str]) -> Dict[str, Dict[str, Dict[str, float]]]:
-        """
-        Lấy revenue theo channel và subchannel từ object_sql_transaction_details (3 tháng gần nhất)
-        Returns: dict {date_label: {channel: {subchannel: revenue}}}
-        """
         date_labels_str = ','.join([f"'{dl}'" for dl in date_labels])
         query = f"""
             SELECT 
