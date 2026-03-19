@@ -32,7 +32,7 @@ class KPIBrandMetadataCalculator:
             target_month=recent_month
         )
 
-        # Filter brands có doanh thu dương và có bán trong tháng gần nhất
+        # Filter brands with positive revenue and sold in the recent month
         positive_revenue_brands = {
             brand_name: revenue 
             for brand_name, revenue in revenue_by_brand.items() 
